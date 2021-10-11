@@ -47,7 +47,7 @@ Plus a Raspberry Pi or any machine that can host a web page and an MQTT broker.
 ### esp8266
 - 1MB micropython firmware
 - [umqtt_simple](https://github.com/micropython/micropython-lib/blob/master/micropython/umqtt.simple/umqtt/simple.py)
-- thermostat.py
+- lessmostat.py
 
 ### Web server/mqtt broker (raspberry pi 4)
 - Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ, Copyright (c) 2021 by Simone Bernabè (https://codepen.io/simoberny/pen/wrGoZZ)
@@ -138,7 +138,7 @@ import webrepl_setup
     ![image](esp8266_dual_channel_relay_dht.jpg)
 - Connect the 5V power supply male barrel connector to the female, connect the female breakout to the esp8266 board in+ and in- screws using jumper cables.
 - Push files with webrepl
-    - Note once you push main.py you will be unable to send commands via UART anymore since the rx pin is stolen by thermostat.py (you will get serial echo from the esp8266 since tx still works, but not serial input into esp8266). To re-enable restore main.py commenting out the lines that call into thermostat.main() and overwrite via webrepl.
+    - Note once you push main.py you will be unable to send commands via UART anymore since the rx pin is stolen by lessmostat.py (you will get serial echo from the esp8266 since tx still works, but not serial input into esp8266). To re-enable restore main.py commenting out the lines that call into lessmostat.main() and overwrite via webrepl.
 
 ### Raspberry Pi 4
 
@@ -164,7 +164,7 @@ sudo systemctl restart mosquitto
 
 #### Install lighttpd (any webserver)
 
-Copy web files thermostat.html and thermostat.css
+Copy web files lessmostat.html and lessmostat.css
 
 ## Development Notes
 
