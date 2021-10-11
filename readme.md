@@ -89,7 +89,7 @@ protocol websockets
 sudo systemctl restart mosquitto
 ```
 - Install lighttpd or any webserver
-- Copy files from [html](tree/master/html) onto the webserver
+- Copy the files from [html](html) directory onto the webserver
 
 
 ### esp8266 dual relay board
@@ -172,8 +172,12 @@ import webrepl_setup
     - rx to rx1 jumper in top position (rx not bridged to rx1)
     
     ![image](esp8266_dual_channel_relay_dht.jpg)
+- Connect A/C to relays
+    - red (24V) to COM1 and COM2 (common relays 1 and 2)
+    - yellow (cooling) to NO1 (normally open relay 1)
+    - green (fan) to NO2 (normally open relay 2)
 - Connect the 5V power supply male barrel connector to the female, connect the female breakout to the esp8266 board in+ and in- screws using jumper cables.
-- Send files from [upython](tree/master/upython) to esp8266 with webrepl
+- Send files from the [upython](upython) directory to esp8266 with webrepl
     - change the mqtt_broker entry in lessmostat.cfg with the address of your MQTT machine
     - Note once you push main.py and reboot, you will be unable to send commands via UART anymore since main.py is called on every boot and the UART rx pin is stolen by lessmostat.py (you will get serial echo from the esp8266 since tx still works, but not serial input into esp8266). If you need to re-enable UART access, just delete main.py from webrepl with <code>import os; os.remove("main.py")</code>
 - Now you should be able to test that esp8266 MQTT commands are being received on the MQTT broker machine, eg:
