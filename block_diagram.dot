@@ -1,0 +1,37 @@
+# Editable at https://dreampuf.github.io/GraphvizOnline/
+# or embeddable in some markdowns as 
+# ```viz
+# ...
+# ```
+# or on vscode GraphViz language support plugin
+digraph G {
+    graph [rankdir = LR]
+
+    pwr [shape=box, label="5V"];
+
+    dht [shape=record, label="{DHT22\nsensor|{data|<plus>+|<minus>-}}", height=1];
+
+    ac [shape=box, label="A/C", height=1];
+
+    esp [shape=record, label="{{<gpio>gpio3\n(rx)|<pwr5v>5V|<gnd5v>gnd|<power>+IN/-IN}|{<main>dual relay esp8266\n\numqtt_simple.py\nlessmostat.py}|{<relay0c>COM1|<relay0no>NO1|<relay1c>COM2|<relay1no>NO2|<wifi>wifi}}"];
+
+    rpi4 [shape=box, label="raspberry pi 4\n\nlighttpd\nmosquitto"];
+    
+    
+    client [shape=box, label="PC/mobile\n\nbrowser"];
+
+    dht:data:e -> esp:gpio:w [label = "temp/humid"]
+    dht:plus:e -> esp:pwr5v:w 
+    dht:minus:e -> esp:gnd5v:w
+    pwr -> esp:power [label = "power"]
+    
+    ac -> esp:relay0c:e [label = "red (power) wire"]
+    esp:relay0no:e -> ac [label = "yellow (cooling) wire"]
+    ac -> esp:relay1c:e [label = "red (power) wire"]
+    esp:relay1no:e -> ac [label = "green (fan) wire"]
+    
+    esp:wifi -> rpi4 [label = "mqtt", dir="both", style="dotted"];
+
+    rpi4 -> client [label = "http", dir="both", style="dotted"];
+    rpi4 -> client [label = "mqtt", dir="both", style="dotted"];
+}
