@@ -17,10 +17,10 @@ This is a
 - alexa integration with fauxmo/fauxhue
 - complex hourly/daily/weekly/dusk/dawn scheduling, independent fan control UI
 - charts statistics, integration with influxdb/grafana
-- mqtt robustness, esp8266 reconnection on wifi/broker loss, browser reconnection on wake up, etc 
+- MQTT robustness, esp8266 reconnection on wifi/broker loss, browser reconnection on wake up, etc 
 - deep sleep/batteries
 - security, MQTT SSL
-- cloud instead of raspberry pi (eg AWS MQTT)
+- cloud instead of Raspberry Pi (eg AWS MQTT)
 
 ## Block Diagram
 
@@ -34,9 +34,11 @@ This is a
     - Don't use [Tangyy DHT22 Digital Temperature and Humidity Sensor Replace SHT11 SHT15 Measure Module for Raspberry Pi](https://www.amazon.com/dp/B08QHW9TS8), never got any reads, always timed out
     - Can use the cheaper DHT11 if you are fine with single degree Celsius precision (tested from a different kit I had)
 - $6.96/10 [GOSONO 10Pcs/lot Male DC Power Plug Connector 2.5mm x 5.5mm/2.1x5.5 (Screw Fastening Type) Needn't Welding DC Plug Adapter (Green 5 Male + 5 Female 2.5x5.5mm, Green)](https://www.amazon.com/dp/B07V4F9NDK) 
+    - Alternatively cut the barrel plug off from the power supply
 - $8.99/2 [2 Pack, JOVNO 5V 1A Power Supply DC 5V 1000mA 5W Power Adapter Cord 100-240V AC to DC 5 V 0.8A 0.5A 450mA Converter Transformer 5.5x2.5mm Tip for WS2812B WS2811 LED Pixels WiFi Camera Wireless Router](https://www.amazon.com/dp/B0915SC87J)
-- 18 AWG wire for 24V connections (AC red, green and yellow wires)
-- male-female jumper wire for 5V connections (DHT and power supply output)
+- 18 AWG wire for 24V connections between A/C red,green and yellow wires and esp8266 relays
+    - Alternatively plug the A/C wires directly to the relays, although your A/C will probably only have one red wire and you will need a short wire to connect the relay COMs
+- male-male jumper wire for 5V connections between esp8266 and power supply (unless you cut off the power supply barrel plug)
 - $6.99 [JBtek Windows 8 Supported Debug Cable for Raspberry Pi USB Programming USB to TTL Serial Cable](https://www.amazon.com/gp/product/B00QT7LQ88) 
     - Or (simpler and no need to manually short contacts) [Stemedu USB to ESP8266 ESP-01 Serial Wireless Transceiver 4MB SPI Flash WiFi Module ESP-01S Prog WiFi Programmer Downloader CH340C Chip with Reset Button](https://www.amazon.com/dp/B08QMMGZLB) $10.99 (tested)
 
@@ -44,24 +46,55 @@ Plus a Raspberry Pi or any machine that can host a web page and an MQTT broker.
 
 ## Software
 
-### esp8266
+### esp8266 dual relay board
 - 1MB micropython firmware
 - [umqtt_simple](https://github.com/micropython/micropython-lib/blob/master/micropython/umqtt.simple/umqtt/simple.py)
 - lessmostat.py
 
-### Web server/mqtt broker (raspberry pi 4)
-- Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ, Copyright (c) 2021 by Simone Bernabè (https://codepen.io/simoberny/pen/wrGoZZ)
-
-- mqtt javascript library linked directly from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js
+### Raspberry Pi 
+(any Webserver/MQTT broker)
+- Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ, 
+  - Copyright (c) 2021 by Simone Bernabè (https://codepen.io/simoberny/pen/wrGoZZ)
+- MQTT javascript library linked directly from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js
 - jquery linked directly from https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js
 - mosquitto MQTT broker
 - lighttpd (any webserver)
 
 ## Setup
 
-### esp8266
+### Raspberry Pi
+(or any machine with a MQTT broker and a webserver)
 
-- Install esptool.py on your PC
+- install mosquitto, optionally install the clients to do command-line tests
+```bash
+sudo apt-get install mosquitto
+sudo apt-get install mosquitto-clients
+```
+- Set configuration /etc/mosquitto/mosquitto.cfg to enable web sockets, optionally move log away from sdcard
+```bash
+# log_dest file /var/log/mosquitto/mosquitto.log
+log_dest file /mnt/usb0/mosquitto/mosquitto.log
+
+include_dir /etc/mosquitto/conf.d
+
+# this will listen for mqtt on tcp
+listener 1883
+
+# this will listen for websockets on 9001
+listener 9001
+protocol websockets
+```
+- Restart mosquitto with
+```bash
+sudo systemctl restart mosquitto
+```
+- Install lighttpd or any webserver
+- Copy files from [html](tree/master/html) onto the webserver
+
+
+### esp8266 dual relay board
+- Install some Python on your PC
+- Install esptool.py Python tool on your PC
 ```bash
 pip install esptool
 ```
@@ -72,8 +105,10 @@ pip install esptool
     - white: tx
     - black: gnd
     - There's no need to connect the power supply at this point, the USB port will supply power through the 5V/GND pins.
+
     ![image](esp8266_dual_channel_relay_serial.jpg)
 - Once connected to USB and powered, reset the chip into flash mode, for that short the reset and flash to ground and then let the reset go (so it stops continuously resetting) but keep flash to ground (so the last reset leaves the chip in flash mode).
+
     ![image](esp8266_dual_channel_relay_flash.jpg)
 - At this point you should be able to see the chip using esptool.py
 ```bash
@@ -109,7 +144,7 @@ esptool.py --baud 460800 read_flash 0x00000 0x100000 flash_1M.bin
 esptool.py erase_flash
 esptool.py --baud 460800 write_flash --flash_mode=dout --flash_size=detect 0 esp8266-1m-20210902-v1.17.bin
 ```
-- On the PC, start a serial terminal program (eg Putty) and connect to the esp8266 with 115200, 8 bits no parity 1 stop bit
+- On the PC, start a serial terminal program (eg Putty) and connect to the esp8266 with 115200, 8 bits, no parity, 1 stop bit
     - You should see the REPL prompt ">>>" if you press enter or when booting with the serial cable connected.
 - On the serial terminal, disable wifi access point mode
 ```python
@@ -134,37 +169,33 @@ import webrepl_setup
     - 5V
     - gnd
     - data to rx
-    - rx jumper in top position
+    - rx to rx1 jumper in top position (rx not bridged to rx1)
+    
     ![image](esp8266_dual_channel_relay_dht.jpg)
 - Connect the 5V power supply male barrel connector to the female, connect the female breakout to the esp8266 board in+ and in- screws using jumper cables.
-- Push files with webrepl
-    - Note once you push main.py you will be unable to send commands via UART anymore since the rx pin is stolen by lessmostat.py (you will get serial echo from the esp8266 since tx still works, but not serial input into esp8266). To re-enable restore main.py commenting out the lines that call into lessmostat.main() and overwrite via webrepl.
-
-### Raspberry Pi 4
-
-#### Install mosquitto
-- Set configuration /etc/mosquitto/mosquitto.cfg to enable web sockets, optionally move log away from sdcard
-```bash
-# log_dest file /var/log/mosquitto/mosquitto.log
-log_dest file /mnt/usb0/mosquitto/mosquitto.log
-
-include_dir /etc/mosquitto/conf.d
-
-# this will listen for mqtt on tcp
-listener 1883
-
-# this will listen for websockets on 9001
-listener 9001
-protocol websockets
-```
-- restart with
-```bash
-sudo systemctl restart mosquitto
-```
-
-#### Install lighttpd (any webserver)
-
-Copy web files lessmostat.html and lessmostat.css
+- Send files from [upython](tree/master/upython) to esp8266 with webrepl
+    - change the mqtt_broker entry in lessmostat.cfg with the address of your MQTT machine
+    - Note once you push main.py and reboot, you will be unable to send commands via UART anymore since main.py is called on every boot and the UART rx pin is stolen by lessmostat.py (you will get serial echo from the esp8266 since tx still works, but not serial input into esp8266). If you need to re-enable UART access, just delete main.py from webrepl with <code>import os; os.remove("main.py")</code>
+- Now you should be able to test that esp8266 MQTT commands are being received on the MQTT broker machine, eg:
+    - on the MQTT broker machine, start a subscriber to any messages coming from lessmostat
+    ```bash
+    mosquitto_sub -t apartment/lessmostat/# -v
+    ```
+    - the console should now show the sensor information messages coming from esp8266 every few seconds:
+    ```bash
+    apartment/lessmostat/info/sensor {"humid": 48.9, "temp": 26.0, "ts": 1633966444}
+    apartment/lessmostat/info/sensor {"humid": 48.8, "temp": 26.0, "ts": 1633966455}
+    ...
+    ```
+    - you can also publish a state request command on another console
+    ```bash
+    mosquitto_pub -t apartment/lessmostat/control/state -m "{ \"cmd\" : 12 }"
+    ```
+    - and the subscriber console should show the message from the esp8266
+    ```bash
+    apartment/lessmostat/info/state {"state": {"ac": "off", "config": {"on_threshold_decidegs": 4, "off_threshold_decidegs": 4, "mqtt_broker": "192.168.8.200", "ac_rules": [{"state": "on", "temp": 26}], "fan_rules": []}, "fan": "off", "fan_mod_ts": 1633965621, "ac_mod_ts": 1633965621, "sensor": {"humid": 48.8, "temp": 26.0}}, "ts": 1633966434}
+    ```
+- Access http://webserverip:port/lessmostat.html from any browser and operate the lessmostat!
 
 ## Development Notes
 
