@@ -89,7 +89,13 @@ protocol websockets
 sudo systemctl restart mosquitto
 ```
 - Install lighttpd or any webserver
-- Copy the files from [html](html) directory onto the webserver
+- Copy the files from the [html](html) directory onto the webserver
+    - Modify the line in lessmostat.html 
+      ```javascript
+      var host="192.168.8.200";
+      ```
+      with the address of the MQTT broker machine.
+
 
 
 ### esp8266 dual relay board
