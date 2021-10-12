@@ -88,6 +88,12 @@ def read_config(state):
             print("Read config data", js)
             state["config"].update(json.loads(js))
 
+            # Validate the configuration
+            if (len(state["config"]["fan_rules"]) == 0):
+                # If no fan rules, assume auto
+                state["config"]["fan_rules"] = [ { "state" : "auto" } ]
+
+
     except Exception as e:
         print("Exception reading config file %s" % config_filename, e)
 
@@ -117,6 +123,11 @@ def sub_cb(client, topic, msg):
 
     Start at the given temp or higher
     { "state" : "on", temp="26" }
+
+    Set fan to "auto" or "on"
+    { "state" : "auto" }
+    { "state" : "on" }
+    
 
     XXX TODO complex scheduling
     messages
@@ -187,6 +198,14 @@ def sub_cb(client, topic, msg):
             ]
             # XXX Should this publish only the delta?
             publish_message(client, "info/state", { 'state' : state } )
+
+        elif (topic.endswith("control/fan")):
+            state["config"]["fan_rules"] = [
+                { "state" : d["state"] },
+            ]
+            # XXX Should this publish only the delta?
+            publish_message(client, "info/state", { 'state' : state } )
+
             
     except Exception as e:
         print("Exception handling topic %s message %s" % (repr(topic), repr(msg)), e) 
@@ -243,8 +262,9 @@ ac_off = bytes(relay_1_off)
 def turn_ac(uart, client, on):
     if (on):
         # Always turn fan on before ac
-        # XXX Not necessary if fan is on by default?
-        turn_fan(uart, client, on)
+        if (state["fan"] != "on"):
+            print("ac forcing fan on")
+            turn_fan(uart, client, on)
 
         # XXX Should prevent somewhere it's not trying to re-enable ac before the 
         #     safety idle period
@@ -256,9 +276,7 @@ def turn_ac(uart, client, on):
         uart_write(uart, ac_off)
         ac_state = "off"
         
-        # Always turn fan off after ac
-        # XXX Not necessary if fan is on by default?
-        turn_fan(uart, client, on)
+        # Leave the fan on, let it turn off depending on the rules
 
     publish_message(client, "info/ac", { 'state' : ac_state })
     state["ac"] = ac_state
@@ -276,10 +294,16 @@ state = {
     #     restarting the program
     "config" : {
         "mqtt_broker" : "192.168.8.200",
+        # The AC has a single rule which is to start at the given temperature +
+        # on_threshold and stop at the temperature - off_threshold
         "ac_rules" : [
             { "state" : "on", "temp" : 30 },
         ],
-        "fan_rules" : [],
+        # The fan has a single rule which is to set the fan to "on" (always
+        # on or "auto" (match ac state)
+        "fan_rules" : [
+            { "state" : "auto" }
+        ],
         # On and off thresholds in 1/10th of a celsius degree (ie will turn on
         # at temp + on threshold and off at temp - off threshold)
         "on_threshold_decidegs" : 4, 
@@ -398,14 +422,30 @@ def main():
                     if (rule_temp is not None):
                         if ((state["ac"] != "on") and (rule_state == "on") and 
                             (temp*10 >= rule_temp*10 + on_threshold_decidegs)):
-                            print("Starting fan and ac")
+                            print("Starting ac")
                             turn_ac(uart, client, True)
                             
                         elif ((state["ac"] != "off") and (rule_state == "on") and 
                             (temp*10 <= rule_temp*10 - off_threshold_decidegs)):
-                            print("Stopping fan and ac")
+                            print("Stopping ac")
                             turn_ac(uart, client, False)
+                
+                fan_rules = state["config"]["fan_rules"]
+                for rule in fan_rules:
+                    rule_state = rule["state"]
+                    if ((rule_state == "on") and (state["fan"] != "on")):
+                        print("Starting fan")
+                        turn_fan(uart, client, True)
 
+                    elif ((rule_state == "auto") and (state["fan"] != state["ac"])):
+                        # Note that in reality this code will only run to turn
+                        # the fan off, the fan is turned on unconditionally when
+                        # at ac turn on time
+                        print("Matching fan to ac")
+                        turn_fan(uart, client, state["ac"] == "on")
+                
+
+                    
         client.disconnect()
 
     finally:

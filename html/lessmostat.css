@@ -218,6 +218,14 @@ body {
     font-size: 15px;
 }
 
+.thermostat .center .small .fan {
+    display: block;
+    position: relative;
+    top: -25px;
+    color: #57545f;
+    font-size: 20px;
+}
+
 .thermostat .center .small .units {
     position: relative;
     display: block;

@@ -12,7 +12,7 @@
     <!-- from https://thenounproject.com/term/thermostat/614999/ -->
     <link rel="icon" type="image/svg+xml" href="lessmostat.svg">
 <script type = "text/javascript" language = "javascript">
-
+'use strict';
 var mqtt;
 var reconnectTimeout = 2000;
 var host="192.168.8.200";
@@ -23,6 +23,8 @@ var currentDeg = 30;
 var currentHumid = 44;
 var currentAcState = "unknown";
 var displayCelsius = true;
+var targetFanState = "auto";
+var currentFanState = "unknown";
 
 var topic_root = "apartment/lessmostat/"
 
@@ -36,33 +38,40 @@ function onMessageArrived(message) {
         $(".units").fadeOut(1000, function() {
             $(".units").fadeIn(1000)
         });
-        data = JSON.parse(message.payloadString);
+        var data = JSON.parse(message.payloadString);
         currentDeg = data.temp;
         currentHumid = data.humid;
         updateGr();
 
     } else if (topic == topic_root + "info/state") {
-        data = JSON.parse(message.payloadString);
+        var data = JSON.parse(message.payloadString);
         // XXX This asssumes a lot about the rules
-        ac_rules = data.state.config.ac_rules;
-        ac_on_rule = ac_rules[0].state == "on" ? ac_rules[0] : ac_rules[1];
+        var ac_rules = data.state.config.ac_rules;
+        var ac_on_rule = ac_rules[0].state == "on" ? ac_rules[0] : ac_rules[1];
+        var fan_rules = data.state.config.fan_rules;
+        var fan_on_rule = fan_rules[0];
+
         targetDeg = ac_on_rule.temp;
-        // XXX Note this is not necessary and may be weird if the message was
-        //     caused by this client
         currentAcState = data.state.ac;
         currentDeg = data.state.sensor.temp;
         currentHumid = data.state.sensor.humid;
+        targetFanState = fan_on_rule.state; 
+        currentFanState = data.state.fan;
         updateGr();
 
     } else if (topic == topic_root + "info/ac") {
-        data = JSON.parse(message.payloadString);
+        var data = JSON.parse(message.payloadString);
         currentAcState = data.state;
+        updateGr();
+    } else if (topic == topic_root + "info/fan") {
+        var data = JSON.parse(message.payloadString);
+        currentFanState = data.state;
         updateGr();
     }
 };	
 
 function requestTargetDeg(newTargetDeg) {
-    message = new Paho.MQTT.Message(JSON.stringify({ 
+    var message = new Paho.MQTT.Message(JSON.stringify({ 
         ts: Math.round((new Date()).getTime() / 1000),  
         state : "on", 
         temp : newTargetDeg 
@@ -71,12 +80,24 @@ function requestTargetDeg(newTargetDeg) {
     mqtt.send(message);
 }
 
+function requestFanToggle() {
+    var requestedFanState = "on";
+    if (targetFanState == "on") {
+        requestedFanState = "auto";
+    }
+    var message = new Paho.MQTT.Message(JSON.stringify({ 
+        ts: Math.round((new Date()).getTime() / 1000),  
+        state : requestedFanState, 
+    }));
+    message.destinationName = topic_root + "control/fan";
+    mqtt.send(message);
+}
+
 function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
-
     console.log("Connected ");
     mqtt.subscribe(topic_root + "#");
-    message = new Paho.MQTT.Message("{ \"cmd\" : \"test\" }");
+    var message = new Paho.MQTT.Message("{ \"cmd\" : \"test\" }");
     message.destinationName = topic_root + "control/state";
     mqtt.send(message);
 }
@@ -143,6 +164,16 @@ function updateGr() {
         $(".cooling").text("idle");
         $(".cooling").css("color", "#2e2c3a")
     }
+    if (targetFanState == "on") {
+        $(".fan").text("" + '\u2622' + " on");
+    } else {
+        $(".fan").text("" + '\u2622' + " auto");
+    }
+    if (currentFanState == "on") {
+        $(".fan").css("color", "black");
+    } else {
+        $(".fan").css("color", "gray");
+    }
 }
 
 
@@ -174,6 +205,9 @@ $(document).ready(function(){
         displayCelsius = !displayCelsius;
         updateGr();
     });
+    $(".fan").mousedown(function() {
+        requestFanToggle();
+    });
 });
 
 </script>
@@ -203,6 +237,7 @@ $(document).ready(function(){
         <span class="heat">19</span>
         <span class="units">&#8451;</span>
         <span class="humid">44%</span>
+        <span class="fan">&#9762; auto</span>
     </div>
   </div>
 </div>

@@ -15,7 +15,7 @@ This is a
 
 ## TODOs
 - alexa integration with fauxmo/fauxhue
-- complex hourly/daily/weekly/dusk/dawn scheduling, independent fan control UI
+- complex hourly/daily/weekly/dusk/dawn scheduling
 - charts statistics, integration with influxdb/grafana
 - MQTT robustness, esp8266 reconnection on wifi/broker loss, browser reconnection on wake up, etc 
 - deep sleep/batteries
