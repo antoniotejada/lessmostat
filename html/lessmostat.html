@@ -24,6 +24,9 @@ var currentAcState = "unknown";
 var displayCelsius = true;
 var targetFanState = "auto";
 var currentFanState = "unknown";
+var acUptime = 0;
+var acLastModTime = 0;
+var startTime = 0;
 
 var topic_root = "apartment/lessmostat/"
 
@@ -56,11 +59,16 @@ function onMessageArrived(message) {
         currentHumid = data.state.sensor.humid;
         targetFanState = fan_on_rule.state; 
         currentFanState = data.state.fan;
+        startTime = data.state.start_ts;
+        acUptime = data.state.ac_uptime;
+        acLastModTime = data.state.ac_mod_ts;
         updateGr();
 
     } else if (topic == topic_root + "info/ac") {
         var data = JSON.parse(message.payloadString);
         currentAcState = data.state;
+        acLastModTime = data.mod_ts;
+        acUptime = data.uptime;
         updateGr();
     } else if (topic == topic_root + "info/fan") {
         var data = JSON.parse(message.payloadString);
@@ -69,12 +77,17 @@ function onMessageArrived(message) {
     }
 };	
 
+function timestamp_message(msg) {
+    msg.ts = Math.round((new Date()).getTime() / 1000); 
+    return msg;
+}
+
 function requestTargetDeg(newTargetDeg) {
-    var message = new Paho.Message(JSON.stringify({ 
-        ts: Math.round((new Date()).getTime() / 1000),  
+    var msg = timestamp_message({ 
         state : "on", 
         temp : newTargetDeg 
-    }));
+    });
+    var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/ac";
     mqtt.send(message);
 }
@@ -84,10 +97,10 @@ function requestFanToggle() {
     if (targetFanState == "on") {
         requestedFanState = "auto";
     }
-    var message = new Paho.Message(JSON.stringify({ 
-        ts: Math.round((new Date()).getTime() / 1000),  
+    var msg = timestamp_message({
         state : requestedFanState, 
-    }));
+    });
+    var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/fan";
     mqtt.send(message);
 }
@@ -96,7 +109,8 @@ function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
     console.log("Connected ");
     mqtt.subscribe(topic_root + "#");
-    var message = new Paho.Message("{ \"cmd\" : \"test\" }");
+    var msg = timestamp_message({});
+    var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/state";
     mqtt.send(message);
 }
@@ -147,10 +161,16 @@ function degToDegrees(deg) {
     return -180 + degreesUnused/2.0 + offsetDeg * degreesPerDeg;
 }
 
+function roundDecimals(f, numDecimals) {
+    var magnitude = Math.pow(10, numDecimals);
+    return (Math.round(f * 1.0 * magnitude) / magnitude);
+}
+
 function updateGr() {
     
     var currentDegDisplay = currentDeg;
     var targetDegDisplay = targetDeg;
+    var currentHumidDisplay = currentHumid;
 
     // Fahrenheit / Celsius
     var unitChar = '\u2103';
@@ -160,12 +180,23 @@ function updateGr() {
         unitChar = '\u2109';
     }
     // Round to one decimal
-    currentDegDisplay = Math.round(currentDegDisplay * 10) / 10;
-    targetDegDisplay = Math.round(targetDegDisplay * 10) / 10
+    currentDegDisplay = roundDecimals(currentDegDisplay, 1);
+    targetDegDisplay = roundDecimals(targetDegDisplay, 1);
+    currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
+
+    var now = (new Date()).getTime() / 1000;
+    var acUtilization = acUptime;
+    if (currentAcState == "on") {
+        // If AC is running, accumulate the last running time since uptime
+        // doesn't include it until AC is turned off
+        acUtilization += (now - acLastModTime);
+    }
+    acUtilization = (acUtilization * 100.0) / (now - startTime);
+    var acUtilizationDisplay = roundDecimals(acUtilization, 1);
 
     $(".heat").text("" + currentDegDisplay);
-    $(".units").text("" + '\uD83C\uDF21' + unitChar);
-    $(".humid").text('\uD83D\uDCA7' + currentHumid + "%");
+    $(".units").text("" + '\uD83C\uDF21' + unitChar  + ' \u2746 ' + acUtilizationDisplay + "%");
+    $(".humid").text('\uD83D\uDCA7' + currentHumidDisplay + "%");
     $(".ext").text("" + targetDegDisplay);
     $(".number").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
     $(".shadow").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");

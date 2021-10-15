@@ -79,6 +79,18 @@ import time
 # - don't allow setting temps below 70F
 # - when following a temp, start the AC when it's above the temp plus safety margin, stop when it's below the temp minus safety margin
 
+def str_to_bytes(s):
+    return bytes(s, 'UTF-8')
+    
+# From https://github.com/micropython/micropython-lib/blob/master/python-stdlib/functools/functools.py
+def partial(func, *args, **kwargs):
+    def _partial(*more_args, **more_kwargs):
+        kw = kwargs.copy()
+        kw.update(more_kwargs)
+        return func(*(args + more_args), **kw)
+
+    return _partial
+
 config_filename = "lessmostat.cfg"
 def read_config(state):
     print("Reading config file", config_filename)
@@ -109,14 +121,6 @@ def write_config(state):
     except Exception as e:
         print("Exception writing config file %s" % config_filename, e)
 
-# From https://github.com/micropython/micropython-lib/blob/master/python-stdlib/functools/functools.py
-def partial(func, *args, **kwargs):
-    def _partial(*more_args, **more_kwargs):
-        kw = kwargs.copy()
-        kw.update(more_kwargs)
-        return func(*(args + more_args), **kw)
-
-    return _partial
 
 def sub_cb(client, topic, msg):
     """
@@ -190,21 +194,21 @@ def sub_cb(client, topic, msg):
         d = json.loads(msg)
 
         if (topic.endswith("/state")):
-            publish_message(client, "info/state", { 'state' : state } )
+            publish_state_message(client)
 
         elif (topic.endswith("control/ac")):
             state["config"]["ac_rules"] = [
                 { "state" : "on", "temp" : d["temp"] },
             ]
             # XXX Should this publish only the delta?
-            publish_message(client, "info/state", { 'state' : state } )
+            publish_state_message(client)
 
         elif (topic.endswith("control/fan")):
             state["config"]["fan_rules"] = [
                 { "state" : d["state"] },
             ]
             # XXX Should this publish only the delta?
-            publish_message(client, "info/state", { 'state' : state } )
+            publish_state_message(client)
 
             
     except Exception as e:
@@ -224,7 +228,10 @@ def timestamp_message(msg):
 topic_root = "apartment/lessmostat/"
 def publish_message(client, subtopic, msg):
     js = json.dumps(timestamp_message(msg))
-    client.publish(bytes(topic_root + subtopic, 'UTF-8'), bytes(js, 'UTF-8'))
+    client.publish(str_to_bytes(topic_root + subtopic), str_to_bytes(js))
+
+def publish_state_message(client):
+    publish_message(client, "info/state", { 'state' : state } )
 
 
 # See http://www.icstation.com/esp8266-wifi-channel-relay-module-smart-home-remote-control-switch-android-phone-control-transmission-distance-100m-p-12592.html
@@ -243,6 +250,9 @@ def uart_write(uart, b):
 fan_on = bytes(relay_2_on)
 fan_off = bytes(relay_2_off)
 def turn_fan(uart, client, on):
+    fan_state = state["fan"]
+    # Uptime accumulation assumes there are no redundant calls
+    assert ((on and (fan_state != "on")) or ((not on) and fan_state != "off"))
     if (on):
         # XXX Should prevent somewhere it's not trying to re-enable fan before the
         #     safety idle period
@@ -252,14 +262,22 @@ def turn_fan(uart, client, on):
     else:
         uart_write(uart, fan_off)
         fan_state = "off"
-
-    publish_message(client, "info/fan", {'state' : fan_state})
+        
     state["fan"] = fan_state
+    prev_fan_mod_ts = state["fan_mod_ts"]
     state["fan_mod_ts"] = get_epoch()
+    if (not on):
+        # Accumulate uptime
+        state["fan_uptime"] += (state["fan_mod_ts"] - prev_fan_mod_ts)
+
+    publish_message(client, "info/fan", { 'state' : fan_state, 'mod_ts' : state["fan_mod_ts"], 'uptime' : state["fan_uptime"] })
 
 ac_on = bytes(relay_1_on)
 ac_off = bytes(relay_1_off)
 def turn_ac(uart, client, on):
+    ac_state = state["ac"]
+    # Uptime accumulation assumes there are no redundant calls
+    assert ((on and (ac_state != "on")) or ((not on) and ac_state != "off"))
     if (on):
         # Always turn fan on before ac
         if (state["fan"] != "on"):
@@ -278,16 +296,31 @@ def turn_ac(uart, client, on):
         
         # Leave the fan on, let it turn off depending on the rules
 
-    publish_message(client, "info/ac", { 'state' : ac_state })
     state["ac"] = ac_state
+    prev_ac_mod_ts = state["ac_mod_ts"]
     state["ac_mod_ts"] = get_epoch()
+    if (not on):
+        # Accumulate uptime
+        state["ac_uptime"] += (state["ac_mod_ts"] - prev_ac_mod_ts)
+
+    publish_message(client, "info/ac", { 'state' : ac_state, 'mod_ts' : state["ac_mod_ts"], 'uptime' : state["ac_uptime"] })
+
 
 state = { 
     # Current state
-    "ac" : None,
-    "fan" : None,
-    "sensor" : { "humid" : None, "temp" : None } ,
+    "start_ts" : None,
 
+    "ac" : "off",
+    "ac_mod_ts" : None,
+    "ac_uptime" : 0,
+
+    "fan" : "off",
+    "fan_mod_ts" : None,
+    "fan_uptime" : 0,
+
+    "sensor" : { "humid" : None, "temp" : None },
+
+    
     # Configuration state
     # XXX This may want to save the mod_ts so it doesn't continuously 
     #     restart the AC. Alternatively always wait the safety period when 
@@ -317,7 +350,7 @@ def main():
         read_config(state)
         print("Initial state is", state)
 
-        # Fetch some fixed values from the config
+        # Fetch some constant values from the config
         on_threshold_decidegs = state["config"]["on_threshold_decidegs"]
         off_threshold_decidegs = state["config"]["off_threshold_decidegs"]
         mqtt_broker = state["config"]["mqtt_broker"]
@@ -340,6 +373,12 @@ def main():
                     time.sleep(1)
 
         client_id = binascii.hexlify(machine.unique_id())
+
+        # Now that we have an NTP time, initialize state times
+        now_ts = get_epoch()
+        state["start_ts"] = now_ts
+        state["ac_mod_ts"] = now_ts
+        state["fan_mod_ts"] = now_ts
 
         print("Initializing relays uart")
         uart = machine.UART(0, baudrate=115200, bits=8, parity=None, stop=1)
@@ -371,13 +410,14 @@ def main():
         client.set_callback(partial(sub_cb, client))
         client.connect()
 
-        # Now that we have a client and a uart, turn ac and fan off to start and
-        # advertise in a known state
-        turn_ac(uart, client, False)
-        turn_fan(uart, client, False)
-        
         # Now that the state is known, accept control commands
-        client.subscribe(bytes(topic_root + "control/+", 'UTF-9'))
+        client.subscribe(str_to_bytes(topic_root + "control/+"))
+
+        # Advertise the initial state after accepting control commands so
+        # clients can start as soon as they get the initial state
+        # XXX There's the theoretical possibility of a stale control command 
+        #     coming in before the state is advertised?
+        publish_state_message(client)
 
         gc.collect()
         
@@ -439,8 +479,8 @@ def main():
 
                     elif ((rule_state == "auto") and (state["fan"] != state["ac"])):
                         # Note that in reality this code will only run to turn
-                        # the fan off, the fan is turned on unconditionally when
-                        # at ac turn on time
+                        # the fan off, the fan is turned on unconditionally for
+                        # safety reasons at ac turn on time
                         print("Matching fan to ac")
                         turn_fan(uart, client, state["ac"] == "on")
                 

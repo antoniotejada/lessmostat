@@ -55,7 +55,7 @@ Plus a Raspberry Pi or any machine that can host a web page and an MQTT broker.
 (any Webserver/MQTT broker)
 - Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ, 
   - Copyright (c) 2021 by Simone Bernabè (https://codepen.io/simoberny/pen/wrGoZZ)
-- MQTT javascript library linked directly from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js
+- Paho MQTT javascript library linked directly from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.js
 - jquery linked directly from https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js
 - mosquitto MQTT broker
 - lighttpd (any webserver)
