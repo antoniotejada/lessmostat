@@ -27,12 +27,16 @@ var currentFanState = "unknown";
 var acUptime = 0;
 var acLastModTime = 0;
 var startTime = 0;
+var lastMessageTime = 0;
 
 var topic_root = "apartment/lessmostat/"
 
 function onMessageArrived(message) {
-    console.log("onMessageArrived: topic " + message.destinationName + " msg " + message.payloadString);
+    var now = Math.round((new Date()).getTime() / 1000); 
+    var data = JSON.parse(message.payloadString);
+    console.log("onMessageArrived(" + (now - data.ts) + "): topic " + message.destinationName + " msg " + message.payloadString);
     var topic = message.destinationName;
+    lastMessageTime = data.ts;
     if (topic == topic_root + "info/sensor") {
         // Animate on every sensor message to signal there's a connection
         // XXX This should be done in a different way since the sensor may switch
@@ -40,13 +44,12 @@ function onMessageArrived(message) {
         $(".units").fadeOut(1000, function() {
             $(".units").fadeIn(1000);
         });
-        var data = JSON.parse(message.payloadString);
+        
         currentDeg = data.temp;
         currentHumid = data.humid;
         updateGr();
 
     } else if (topic == topic_root + "info/state") {
-        var data = JSON.parse(message.payloadString);
         // XXX This asssumes a lot about the rules
         var ac_rules = data.state.config.ac_rules;
         var ac_on_rule = ac_rules[0].state == "on" ? ac_rules[0] : ac_rules[1];
@@ -63,15 +66,12 @@ function onMessageArrived(message) {
         acUptime = data.state.ac_uptime;
         acLastModTime = data.state.ac_mod_ts;
         updateGr();
-
     } else if (topic == topic_root + "info/ac") {
-        var data = JSON.parse(message.payloadString);
         currentAcState = data.state;
         acLastModTime = data.mod_ts;
         acUptime = data.uptime;
         updateGr();
     } else if (topic == topic_root + "info/fan") {
-        var data = JSON.parse(message.payloadString);
         currentFanState = data.state;
         updateGr();
     }
@@ -184,14 +184,21 @@ function updateGr() {
     targetDegDisplay = roundDecimals(targetDegDisplay, 1);
     currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
 
-    var now = (new Date()).getTime() / 1000;
     var acUtilization = acUptime;
     if (currentAcState == "on") {
         // If AC is running, accumulate the last running time since uptime
         // doesn't include it until AC is turned off
-        acUtilization += (now - acLastModTime);
+        // Note this uses the last timestamp known from the esp8266 rather than 
+        // the browser timestamp.
+        
+        // It's not really necessary since the esp8266 does regular NTP sync to
+        // avoid internal drift, but this keeps the calculation on the same
+        // device time which makes it consistent across clients (at the expense
+        // of being only accurate at message receive time, but that's the case
+        // anyway since display is only updated at message receive time)
+        acUtilization += (lastMessageTime - acLastModTime);
     }
-    acUtilization = (acUtilization * 100.0) / (now - startTime);
+    acUtilization = (acUtilization * 100.0) / (lastMessageTime - startTime);
     var acUtilizationDisplay = roundDecimals(acUtilization, 1);
 
     $(".heat").text("" + currentDegDisplay);
@@ -207,6 +214,9 @@ function updateGr() {
     if (currentAcState == "on") {
         $(".cooling").text("cooling");
         $(".cooling").css("color", "cyan");
+    } else if (currentFanState == "on") {
+        $(".cooling").text("blowing");
+        $(".cooling").css("color", "lightgreen");
     } else {
         $(".cooling").text("idle");
         $(".cooling").css("color", "#2e2c3a")

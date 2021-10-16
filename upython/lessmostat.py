@@ -344,6 +344,44 @@ state = {
     }
 }
 
+
+
+# The esp8266 RTC drifts a lot (seconds per minute), may depend on temperature
+# so periods with relays on may have higher drifts than periods without relays
+# on
+# See https://github.com/micropython/micropython/issues/2724 
+# See https://docs.micropython.org/en/latest/esp8266/general.html#real-time-clock
+
+# Sync with NTP every this many seconds
+# With 240 seconds of sync time, max observed drift in the report below is -7
+# (and was observed when the relays had been on for some time)
+min_ntp_sync_time = 240
+def sync_time_with_ntp():
+    # Setup the clock using ntp
+    # Note ntptime.settime() is known to timeout, try a few times
+    ntp_retries = 5
+    while (ntp_retries > 0):
+        try:
+            print("Querying NTP server")
+            ntp_retries -= 1
+            before = get_epoch()
+            ntptime.settime()
+            after = get_epoch()
+            # Note this drift can be ~1 second misreported either way since
+            # includes the time it takes to settime (which is less than one 
+            # second for the NTP query, since it has a 1 second timeout, plus 
+            # whatever time for the other calculations)
+            print("Got NTP, drift was around %d" % (after - before))
+            break
+
+        except OSError as e:
+            if (e.errno != errno.ETIMEDOUT):
+                raise
+            else:
+                print("Timeout querying NTP, retries left %d, sleeping" % ntp_retries)
+                time.sleep(1)
+
+
 def main():
     try:
         print("Reading initial configuration")
@@ -355,23 +393,10 @@ def main():
         off_threshold_decidegs = state["config"]["off_threshold_decidegs"]
         mqtt_broker = state["config"]["mqtt_broker"]
 
-        # Setup the clock using ntp
-        # Note ntptime.settime() is known to timeout, try a few times
-        ntp_retries = 5
-        while (ntp_retries > 0):
-            try:
-                print("Querying NTP server")
-                ntp_retries -= 1
-                ntptime.settime()
-                print("Got NTP")
-                break
-            except OSError as e:
-                if (e.errno != errno.ETIMEDOUT):
-                    raise
-                else:
-                    print("Timeout querying NTP, retries left %d, sleeping" % ntp_retries)
-                    time.sleep(1)
-
+        # Update time with NTP
+        sync_time_with_ntp()
+        last_ntp_sync_time = get_epoch()
+        
         client_id = binascii.hexlify(machine.unique_id())
 
         # Now that we have an NTP time, initialize state times
@@ -421,6 +446,7 @@ def main():
 
         gc.collect()
         
+        print("Starting sensor reading and MQTT message handling forever loop")
         while (True):
             # Gather sensor information
             # Do sparingly since this can take 2s on DHT22, 1s on DHT11
@@ -435,6 +461,14 @@ def main():
 
             state["sensor"]["temp"] = temp
             state["sensor"]["humid"] = humid
+
+            # Correct esp2866 clock drift (several seconds per minute) by doing
+            # NTP sync
+            # XXX This may result in non-monotonic timestamps depending on the 
+            #     drift direction, do we care?
+            if ((get_epoch() - last_ntp_sync_time) >= min_ntp_sync_time):
+                sync_time_with_ntp()
+                last_ntp_sync_time = get_epoch()
 
             # Wait some seconds between reporting sensor data (the wait could be
             # longer depending on the execution time of the loop below, but it's
