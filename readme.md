@@ -90,11 +90,15 @@ sudo systemctl restart mosquitto
 ```
 - Install lighttpd or any webserver
 - Copy the files from the [html](html) directory onto the webserver
-    - Modify the line in lessmostat.html 
+    - If the webserver has a different ip from the MQTT broker, modify the line
+      in lessmostat.html 
       ```javascript
-      var host="192.168.8.200";
+      var host = location.hostname;
       ```
-      with the address of the MQTT broker machine.
+      with the IP address or hostname of the MQTT broker machine, eg
+      ```javascript
+      var host = "192.168.8.200";
+      ```
 
 
 

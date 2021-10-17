@@ -14,8 +14,10 @@
 <script type = "text/javascript" language = "javascript">
 'use strict';
 var mqtt;
-var host="192.168.8.200";
-var port=9001;
+// Assume the webserver and the MQTT broker are the same machine, otherwise
+// change it here to the specific ip or hostname
+var host = location.hostname;
+var port = 9001;
 
 var targetDeg = 35;
 var currentDeg = 30;
