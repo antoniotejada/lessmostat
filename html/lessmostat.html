@@ -32,11 +32,30 @@ var startTime = 0;
 var lastMessageTime = 0;
 
 var topic_root = "apartment/lessmostat/"
+function dbg(s) {
+    console.debug(s);
+}
+
+function log(s) {
+    console.log(s);
+}
+
+function info(s) {
+    console.info(s);
+}
+
+function warn(s) {
+    console.warn(s);
+}
+
+function err(s) {
+    console.error(s);
+}
 
 function onMessageArrived(message) {
     var now = Math.round((new Date()).getTime() / 1000); 
     var data = JSON.parse(message.payloadString);
-    console.log("onMessageArrived(" + (now - data.ts) + "): topic " + message.destinationName + " msg " + message.payloadString);
+    dbg("onMessageArrived(" + (now - data.ts) + "): topic " + message.destinationName + " msg " + message.payloadString);
     var topic = message.destinationName;
     lastMessageTime = data.ts;
     if (topic == topic_root + "info/sensor") {
@@ -109,7 +128,7 @@ function requestFanToggle() {
 
 function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
-    console.log("Connected ");
+    info("Connected ");
     mqtt.subscribe(topic_root + "#");
     var msg = timestamp_message({});
     var message = new Paho.Message(JSON.stringify(msg));
@@ -119,22 +138,22 @@ function onConnect() {
 
 function onConnectionLost(responseObject) {
     if (responseObject.errorCode !== 0) {
-        console.log("onConnectionLost:" + responseObject.errorMessage);
+        warn("onConnectionLost:" + responseObject.errorMessage);
     }
 };
 
 function onConnected() {
-    console.log("Connected");
+    info("Connected");
 }
 
 function onFailure() {
-    console.log("onFailure");
+    warn("onFailure");
 }
 
 function MQTTconnect() {
     var x = Math.floor(Math.random() * 10000); 
     var cname = "lessmostat-"+x;
-    console.log("connecting " + cname + " to " + host + " " + port);
+    info("connecting " + cname + " to " + host + " " + port);
     mqtt = new Paho.Client(host, port, cname);
     var options = {
         timeout: 3,
@@ -153,8 +172,8 @@ function MQTTconnect() {
 // circular degrees blocked by the status label
 var degreesUnused = 40;
 // Celsius for 0+degreesUnused/2 and 360-degreesUnused/2 circular degrees
-var maxDeg = 40;
-var minDeg = 10;
+var maxDeg = 35;
+var minDeg = 15;
 
 function degToDegrees(deg) {
     var offsetDeg = deg - minDeg;    
@@ -168,6 +187,32 @@ function roundDecimals(f, numDecimals) {
     return (Math.round(f * 1.0 * magnitude) / magnitude);
 }
 
+function truncTargetDegX(degX) {
+    // In fahrenheit mode, target deg must be integer, in Celsius it must be 
+    // integer or 0.5 fractional
+    var truncDegX;
+    if (displayCelsius) {
+        truncDegX = degX;
+        if (degX != Math.trunc(degX)) {
+            truncDegX = Math.trunc(degX) + 0.5;
+        }   
+    } else {
+        // Celsius with 0.5 precision doesn't represent Fahrenheit exactly,
+        // always do rounding
+        truncDegX = Math.round(degX);
+        
+    }
+    return truncDegX;
+}
+
+function c_to_f(cdeg) {
+    return cdeg * 9.0 / 5.0 + 32.0;
+}
+
+function f_to_c(fdeg) {
+    return ((fdeg - 32.0) * 5.0) / 9.0;
+}
+
 function updateGr() {
     
     var currentDegDisplay = currentDeg;
@@ -177,14 +222,22 @@ function updateGr() {
     // Fahrenheit / Celsius
     var unitChar = '\u2103';
     if (!displayCelsius) {
-        currentDegDisplay = currentDeg * 9.0 / 5.0 + 32.0;
-        targetDegDisplay = targetDeg * 9.0 / 5.0 + 32.0;
+        currentDegDisplay = c_to_f(currentDeg);
+        targetDegDisplay = c_to_f(targetDeg);
         unitChar = '\u2109';
     }
     // Round to one decimal
     currentDegDisplay = roundDecimals(currentDegDisplay, 1);
-    targetDegDisplay = roundDecimals(targetDegDisplay, 1);
     currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
+
+    // Round target to integer in fahrenheit mode, 0.5 or 0.0 in celsius
+    targetDegDisplay = truncTargetDegX(targetDegDisplay);
+    
+    // Turn 0.5 into 1/2 for aesthetics
+    if ((targetDegDisplay - Math.trunc(targetDegDisplay)) == 0.5) {
+        targetDegDisplay = "" + Math.trunc(targetDegDisplay) + '\u00BD';
+    }
+    
 
     var acUtilization = acUptime;
     if (currentAcState == "on") {
@@ -242,21 +295,52 @@ $(document).ready(function(){
 
     $(".minus").mousedown(function(){ 
         if (targetDeg > minDeg){
+            var requestedTargetDeg;
+            if (displayCelsius) {
+                requestedTargetDeg = truncTargetDegX(targetDeg) - 0.5;
+            } else {
+                var targetDegF = c_to_f(targetDeg);
+                var requestedTargetDegF = truncTargetDegX(targetDegF) - 1.0;
+                
+                requestedTargetDeg = f_to_c(requestedTargetDegF);
+                dbg(
+                    " targetDeg " + targetDeg + 
+                    " targetDegF " + targetDegF + 
+                    " requestedTargetDegF " + requestedTargetDegF +
+                    " requestedTargetDeg " + requestedTargetDeg
+                );
+            }
+            
             // Don't update the local targetDeg until we receive the
             // confirmation from the server, this prevents the case where we
             // would locally update targetDeg multiple times, then receiving the
             // updates and updating the local targetDeg to some stale value
-            requestTargetDeg(targetDeg - 1);
+            requestTargetDeg(requestedTargetDeg);
         }
     });
 
     $(".plus").mousedown(function(){
         if (targetDeg < maxDeg){
+            var requestedTargetDeg;
+            if (displayCelsius) {
+                requestedTargetDeg = truncTargetDegX(targetDeg) + 0.5;
+            } else {
+                var targetDegF = c_to_f(targetDeg);
+                var requestedTargetDegF = truncTargetDegX(targetDegF) + 1.0;
+                
+                requestedTargetDeg = f_to_c(requestedTargetDegF);
+                dbg(
+                    " targetDeg " + targetDeg + 
+                    " targetDegF " + targetDegF + 
+                    " requestedTargetDegF " + requestedTargetDegF +
+                    " requestedTargetDeg " + requestedTargetDeg
+                );
+            }
             // Don't update the local targetDeg until we receive the
             // confirmation from the server, this prevents the case where we
             // would locally update targetDeg multiple times, then receiving the
             // updates and updating the local targetDeg to some stale value
-            requestTargetDeg(targetDeg + 1);
+            requestTargetDeg(requestedTargetDeg);
         }  
     });
     
