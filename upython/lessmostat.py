@@ -101,9 +101,13 @@ def read_config(state):
             state["config"].update(json.loads(js))
 
             # Validate the configuration
+
+
             if (len(state["config"]["fan_rules"]) == 0):
                 # If no fan rules, assume auto
                 state["config"]["fan_rules"] = [ { "state" : "auto" } ]
+
+            
 
 
     except Exception as e:
@@ -210,6 +214,16 @@ def sub_cb(client, topic, msg):
             # XXX Should this publish only the delta?
             publish_state_message(client)
 
+        elif (topic.endswith("control/store_preset")):
+            # Copy the current rules into the given preset
+            preset_index = max(0, min(d["index"], max_presets - 1))
+            state["config"]["presets"][preset_index] = {
+                "fan" : state["config"]["fan_rules"][0],
+                "ac" : state["config"]["ac_rules"][0],
+            }
+            # XXX Should this publish only the delta?
+            publish_state_message(client)
+
             
     except Exception as e:
         print("Exception handling topic %s message %s" % (repr(topic), repr(msg)), e) 
@@ -305,7 +319,6 @@ def turn_ac(uart, client, on):
 
     publish_message(client, "info/ac", { 'state' : ac_state, 'mod_ts' : state["ac_mod_ts"], 'uptime' : state["ac_uptime"] })
 
-
 state = { 
     # Current state
     "start_ts" : None,
@@ -341,9 +354,16 @@ state = {
         # at temp + on threshold and off at temp - off threshold)
         "on_threshold_decidegs" : 4, 
         "off_threshold_decidegs" : 4,
+
+        # XXX Should this store the thresholds too?
+        "presets" : [
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
+        ],
     }
 }
-
+max_presets = len(state["config"]["presets"])
 
 
 # The esp8266 RTC drifts a lot (seconds per minute), may depend on temperature

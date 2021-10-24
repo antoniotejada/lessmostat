@@ -202,37 +202,64 @@ body {
           animation: bound-in-small 0.6s ease forwards;
 }
 
+.thermostat .center .small .units {
+  display: block;
+  position: relative;
+  top: -125px;
+  color: #57545f;
+  font-size: 15px;
+  font-weight: 300;
+}
+
 .thermostat .center .small .heat {
+  display: block;
   line-height: 150px;
   font-size: 49px;
   color: #57545f;
   font-weight: 300;
+}
+
+.thermostat .center .small .util {
   display: block;
+  position: relative;
+  top: -65px;
+  color: #57545f;
+  font-size: 15px;
 }
 
-.thermostat .center .small .humid {
-    display: block;
-    position: relative;
-    top: -65px;
-    color: #57545f;
-    font-size: 15px;
+.thermostat .center .fan {
+  display: block;
+  position: relative;
+  top: 215px;
+  color: gray;
+  font-size: 20px;
+  text-align: center;
 }
 
-.thermostat .center .small .fan {
-    display: block;
-    position: relative;
-    top: -25px;
-    color: #57545f;
-    font-size: 20px;
+.thermostat .center .preset {
+  display: block;
+  position: absolute;
+  color: gray;
+  font-size: 25px;
+  text-align: center;
 }
 
-.thermostat .center .small .units {
-    position: relative;
-    display: block;
-    top: -130px;
-    color: #57545f;
-    font-size: 15px;
-    font-weight: 300;
+.thermostat .center .preset .preset1 {
+  display: block;
+  position: absolute;
+  transform: translate(35px, 35px) rotate(-45deg);
+}
+
+.thermostat .center .preset .preset2 {
+  display: block;
+  position: absolute;
+  transform: translate(115px, 10px) rotate(0deg);
+}
+
+.thermostat .center .preset .preset3 {
+  display: block;
+  position: absolute;
+  transform: translate(190px, 35px) rotate(45deg)
 }
 
 

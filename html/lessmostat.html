@@ -28,8 +28,11 @@ var targetFanState = "auto";
 var currentFanState = "unknown";
 var acUptime = 0;
 var acLastModTime = 0;
+var fanUptime = 0;
+var fanLastModTime = 0;
 var startTime = 0;
 var lastMessageTime = 0;
+var presets = Array();
 
 var topic_root = "apartment/lessmostat/"
 function dbg(s) {
@@ -76,6 +79,13 @@ function onMessageArrived(message) {
         var ac_on_rule = ac_rules[0].state == "on" ? ac_rules[0] : ac_rules[1];
         var fan_rules = data.state.config.fan_rules;
         var fan_on_rule = fan_rules[0];
+        var preset_rules = data.state.config.presets;
+        for (var i = 0; i < preset_rules.length; ++i) {
+            presets[i] = { 
+                "targetDeg" : preset_rules[i].ac.temp, 
+                "targetFanState" : preset_rules[i].fan.state,
+            }
+        }
 
         targetDeg = ac_on_rule.temp;
         currentAcState = data.state.ac;
@@ -86,6 +96,9 @@ function onMessageArrived(message) {
         startTime = data.state.start_ts;
         acUptime = data.state.ac_uptime;
         acLastModTime = data.state.ac_mod_ts;
+        fanUptime = data.state.fan_uptime;
+        fanLastModTime = data.state.fan_mod_ts;
+    
         updateGr();
     } else if (topic == topic_root + "info/ac") {
         currentAcState = data.state;
@@ -94,6 +107,8 @@ function onMessageArrived(message) {
         updateGr();
     } else if (topic == topic_root + "info/fan") {
         currentFanState = data.state;
+        fanLastModTime = data.mod_ts;
+        fanUptime = data.uptime;
         updateGr();
     }
 };	
@@ -113,13 +128,9 @@ function requestTargetDeg(newTargetDeg) {
     mqtt.send(message);
 }
 
-function requestFanToggle() {
-    var requestedFanState = "on";
-    if (targetFanState == "on") {
-        requestedFanState = "auto";
-    }
+function requestFanState(newFanState) {
     var msg = timestamp_message({
-        state : requestedFanState, 
+        state : newFanState, 
     });
     var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/fan";
@@ -170,10 +181,19 @@ function MQTTconnect() {
 
 
 // circular degrees blocked by the status label
-var degreesUnused = 40;
+const degreesUnused = 40;
 // Celsius for 0+degreesUnused/2 and 360-degreesUnused/2 circular degrees
-var maxDeg = 35;
-var minDeg = 15;
+const maxDeg = 35;
+const minDeg = 15;
+
+// Unicode symbol chars
+const halfChar = '\u00BD';
+const fanChar = '\u2622';
+const celsiusChar = '\u2103';
+const fahrenheitChar = '\u2109';
+const thermometerChar = '\uD83C\uDF21';
+const dropletChar = '\uD83D\uDCA7';
+const flakeChar = '\u2746';
 
 function degToDegrees(deg) {
     var offsetDeg = deg - minDeg;    
@@ -213,31 +233,38 @@ function f_to_c(fdeg) {
     return ((fdeg - 32.0) * 5.0) / 9.0;
 }
 
-function updateGr() {
-    
-    var currentDegDisplay = currentDeg;
+function targetDegToDisplay(targetDeg) {
     var targetDegDisplay = targetDeg;
-    var currentHumidDisplay = currentHumid;
 
-    // Fahrenheit / Celsius
-    var unitChar = '\u2103';
     if (!displayCelsius) {
-        currentDegDisplay = c_to_f(currentDeg);
         targetDegDisplay = c_to_f(targetDeg);
-        unitChar = '\u2109';
     }
-    // Round to one decimal
-    currentDegDisplay = roundDecimals(currentDegDisplay, 1);
-    currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
 
     // Round target to integer in fahrenheit mode, 0.5 or 0.0 in celsius
     targetDegDisplay = truncTargetDegX(targetDegDisplay);
     
     // Turn 0.5 into 1/2 for aesthetics
     if ((targetDegDisplay - Math.trunc(targetDegDisplay)) == 0.5) {
-        targetDegDisplay = "" + Math.trunc(targetDegDisplay) + '\u00BD';
+        targetDegDisplay = "" + Math.trunc(targetDegDisplay) + "<sup>" + halfChar + "</sup>";
     }
+
+    return targetDegDisplay;
+}
+
+function updateGr() {
     
+    var currentDegDisplay = currentDeg;
+    var currentHumidDisplay = currentHumid;
+
+    // Fahrenheit / Celsius
+    var unitChar = celsiusChar;
+    if (!displayCelsius) {
+        currentDegDisplay = c_to_f(currentDeg);
+        unitChar = fahrenheitChar;
+    }
+    // Round to one decimal
+    currentDegDisplay = roundDecimals(currentDegDisplay, 1);
+    currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
 
     var acUtilization = acUptime;
     if (currentAcState == "on") {
@@ -256,10 +283,19 @@ function updateGr() {
     acUtilization = (acUtilization * 100.0) / (lastMessageTime - startTime);
     var acUtilizationDisplay = roundDecimals(acUtilization, 1);
 
+    var fanUtilization = fanUptime;
+    if (currentFanState == "on") {
+        fanUtilization += (lastMessageTime - fanLastModTime);
+    }
+    fanUtilization = (fanUtilization * 100.0) / (lastMessageTime - startTime);
+    var fanUtilizationDisplay = roundDecimals(fanUtilization, 1);
+
     $(".heat").text("" + currentDegDisplay);
-    $(".units").text("" + '\uD83C\uDF21' + unitChar  + ' \u2746 ' + acUtilizationDisplay + "%");
-    $(".humid").text('\uD83D\uDCA7' + currentHumidDisplay + "%");
-    $(".ext").text("" + targetDegDisplay);
+    $(".units").text("" + thermometerChar + unitChar + ' '  + dropletChar + currentHumidDisplay + "%");
+    $(".util").html(
+        '<span  style="color:blue">' + flakeChar + '</span>' + acUtilizationDisplay + "% " + 
+        '<span  style="color:green">' + fanChar + '</span>' + fanUtilizationDisplay + "%");
+    $(".ext").html("" + targetDegToDisplay(targetDeg));
     $(".number").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
     $(".shadow").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
     $(".fill").css("animation", "none");
@@ -277,21 +313,64 @@ function updateGr() {
         $(".cooling").css("color", "#2e2c3a")
     }
     if (targetFanState == "on") {
-        $(".fan").text("" + '\u2622' + " on");
+        $(".fan").text("" + fanChar + " on");
     } else {
-        $(".fan").text("" + '\u2622' + " auto");
+        $(".fan").text("" + fanChar + " auto");
     }
     if (currentFanState == "on") {
         $(".fan").css("color", "black");
     } else {
         $(".fan").css("color", "gray");
     }
-}
 
+    for (var i = 0; i < presets.length; ++i) {
+        var text = "";
+        if (presets[i].targetFanState == "on") {
+            text += "<small>"+fanChar+"</small>";
+        }
+        text += targetDegToDisplay(presets[i].targetDeg)
+        $(".preset" + (i + 1)).html(text);
+    }
+}
 
 $(document).ready(function(){
     updateGr();
     MQTTconnect();
+
+    $(".preset").on('contextmenu', function(e) {
+        // Store the preset on long tap/right click
+
+        // Context menu is long tap on mobile, right click on desktop
+        e.preventDefault();
+        e.stopPropagation();
+        var presetIndex = parseInt(e.target.className[e.target.className.length-1])-1;
+        dbg("Storing preset " + presetIndex);
+        var msg = timestamp_message({ 
+            index : presetIndex,
+        });
+        var message = new Paho.Message(JSON.stringify(msg));
+        message.destinationName = topic_root + "control/store_preset";
+        mqtt.send(message);
+    });
+
+    $(".preset").mousedown(function(e) {
+        // Set the preset on short tap/left click
+
+        // On mobile context menu swallows the mousedown event, on desktop 
+        // you get a right click (which = 3) and then the context menu event,
+        // trap only which = 1
+        dbg("mousedown on " + e.target.className + " which " + e.which + " event " + JSON.stringify(e));
+        if (e.which == 1) {
+            var presetIndex = parseInt(e.target.className[e.target.className.length-1])-1;
+            dbg("Setting preset " + presetIndex);
+            var requestedTargetDeg = presets[presetIndex].targetDeg;
+            var requestedFanState = presets[presetIndex].targetFanState;
+
+            dbg("Requesting fan " + requestedFanState + " ac " + requestedTargetDeg);
+            requestFanState(requestedFanState);
+            requestTargetDeg(requestedTargetDeg);
+        }
+    } );
 
     $(".minus").mousedown(function(){ 
         if (targetDeg > minDeg){
@@ -349,7 +428,9 @@ $(document).ready(function(){
         updateGr();
     });
     $(".fan").mousedown(function() {
-        requestFanToggle();
+        // Toggle fan state
+        var requestedFanState = (targetFanState == "on") ? "auto" : "on";
+        requestFanState(requestedFanState);
     });
 });
 
@@ -376,11 +457,12 @@ $(document).ready(function(){
   <div class="center">
     <span class="arrow minus"><i class="material-icons">keyboard_arrow_left</i></span>
     <span class="arrow plus"><i class="material-icons">keyboard_arrow_right</i></span>
+    <span class="preset"><span class="preset1">P1</span><span class="preset2">P2</span><span class="preset3">P3</span></span>
+    <span class="fan">&#9762; auto</span>
     <div class="small">
         <span class="heat">19</span>
         <span class="units">&#8451;</span>
-        <span class="humid">44%</span>
-        <span class="fan">&#9762; auto</span>
+        <span class="util">44%</span>
     </div>
   </div>
 </div>

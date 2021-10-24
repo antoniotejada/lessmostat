@@ -10,7 +10,7 @@ This is a
 - resistor-less: no need to add resistors anywhere
 - c-wire less: thermostat is powered by an external 5V power supply, no need for a [C wire](https://www.honeywellhome.com/us/en/support/everything-you-need-to-know-about-a-c-wire/) coming from the AC, and only red, yelllow and green wires are used.
 - costless: less than $25
-- wireless thermostat: Based on micropython and esp8266 WIFI chip, programmable via WIFI.
+- wireless thermostat: Based on micropython and esp8266 WIFI chip, programmable via WIFI, with presets and fan and ac utilization display.
 
 
 ## TODOs
