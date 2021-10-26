@@ -333,12 +333,24 @@ function updateGr() {
     }
 }
 
+function showUiFeedback(element) {
+    // Roundtrip of MQTT commands and UI update can be around 2 seconds if the
+    // thermostat was busy sampling the DHT22 sensor, give some early UI
+    // feedback so the user knows the command is being carried out
+    $(element).fadeOut(1000, function() {
+        $(element).fadeIn(1000);
+    });
+}
+
 $(document).ready(function(){
     updateGr();
     MQTTconnect();
 
     $(".preset").on('contextmenu', function(e) {
         // Store the preset on long tap/right click
+
+        // Give some UI feedback
+        showUiFeedback(e.target);
 
         // Context menu is long tap on mobile, right click on desktop
         e.preventDefault();
@@ -361,6 +373,9 @@ $(document).ready(function(){
         // trap only which = 1
         dbg("mousedown on " + e.target.className + " which " + e.which + " event " + JSON.stringify(e));
         if (e.which == 1) {
+            // Give some UI feedback
+            showUiFeedback(e.target);
+            
             var presetIndex = parseInt(e.target.className[e.target.className.length-1])-1;
             dbg("Setting preset " + presetIndex);
             var requestedTargetDeg = presets[presetIndex].targetDeg;
@@ -372,8 +387,11 @@ $(document).ready(function(){
         }
     } );
 
-    $(".minus").mousedown(function(){ 
+    $(".minus").mousedown(function(e){ 
         if (targetDeg > minDeg){
+            // Give some UI feedback
+            showUiFeedback(e.target);
+
             var requestedTargetDeg;
             if (displayCelsius) {
                 requestedTargetDeg = truncTargetDegX(targetDeg) - 0.5;
@@ -398,8 +416,11 @@ $(document).ready(function(){
         }
     });
 
-    $(".plus").mousedown(function(){
+    $(".plus").mousedown(function(e){
         if (targetDeg < maxDeg){
+            // Give some UI feedback
+            showUiFeedback(e.target);
+            
             var requestedTargetDeg;
             if (displayCelsius) {
                 requestedTargetDeg = truncTargetDegX(targetDeg) + 0.5;
@@ -423,11 +444,15 @@ $(document).ready(function(){
         }  
     });
     
-    $(".heat").mousedown(function() {
+    $(".heat").mousedown(function(e) {
         displayCelsius = !displayCelsius;
         updateGr();
     });
-    $(".fan").mousedown(function() {
+
+    $(".fan").mousedown(function(e) {
+        // Give some UI feedback
+        showUiFeedback(e.target);
+        
         // Toggle fan state
         var requestedFanState = (targetFanState == "on") ? "auto" : "on";
         requestFanState(requestedFanState);
