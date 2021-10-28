@@ -346,16 +346,21 @@ $(document).ready(function(){
     updateGr();
     MQTTconnect();
 
+    // Context menu is long tap on mobile, right click on desktop
     $(".preset").on('contextmenu', function(e) {
         // Store the preset on long tap/right click
 
+        // Use delegateTarget in case the element has some html formatting and
+        // target is a subelement of the element the event was bound to
+        var presetN = e.delegateTarget;
+        
         // Give some UI feedback
-        showUiFeedback(e.target);
+        showUiFeedback(presetN);
 
-        // Context menu is long tap on mobile, right click on desktop
         e.preventDefault();
         e.stopPropagation();
-        var presetIndex = parseInt(e.target.className[e.target.className.length-1])-1;
+        
+        var presetIndex = parseInt(presetN.className[presetN.className.length-1])-1;
         dbg("Storing preset " + presetIndex);
         var msg = timestamp_message({ 
             index : presetIndex,
@@ -371,12 +376,16 @@ $(document).ready(function(){
         // On mobile context menu swallows the mousedown event, on desktop 
         // you get a right click (which = 3) and then the context menu event,
         // trap only which = 1
-        dbg("mousedown on " + e.target.className + " which " + e.which + " event " + JSON.stringify(e));
+        dbg("mousedown on " + e.delegateTarget.className + " which " + e.which + " event " + JSON.stringify(e));
         if (e.which == 1) {
-            // Give some UI feedback
-            showUiFeedback(e.target);
+            // Use delegateTarget in case the element has some html formatting
+            // and target is a subelement of the element the event was bound to
+            var presetN = e.delegateTarget;
             
-            var presetIndex = parseInt(e.target.className[e.target.className.length-1])-1;
+            // Give some UI feedback 
+            showUiFeedback(presetN);
+            
+            var presetIndex = parseInt(presetN.className[presetN.className.length-1])-1;
             dbg("Setting preset " + presetIndex);
             var requestedTargetDeg = presets[presetIndex].targetDeg;
             var requestedFanState = presets[presetIndex].targetFanState;
@@ -389,8 +398,10 @@ $(document).ready(function(){
 
     $(".minus").mousedown(function(e){ 
         if (targetDeg > minDeg){
-            // Give some UI feedback
-            showUiFeedback(e.target);
+            // Give some UI feedback, use delegateTarget in case the element has
+            // some html formatting and target is a subelement of the element
+            // the event was bound to
+            showUiFeedback(e.delegateTarget);
 
             var requestedTargetDeg;
             if (displayCelsius) {
@@ -418,8 +429,10 @@ $(document).ready(function(){
 
     $(".plus").mousedown(function(e){
         if (targetDeg < maxDeg){
-            // Give some UI feedback
-            showUiFeedback(e.target);
+            // Give some UI feedback, use delegateTarget in case the element has
+            // some html formatting and target is a subelement of the element
+            // the event was bound to
+            showUiFeedback(e.delegateTarget);
             
             var requestedTargetDeg;
             if (displayCelsius) {
@@ -450,8 +463,10 @@ $(document).ready(function(){
     });
 
     $(".fan").mousedown(function(e) {
-        // Give some UI feedback
-        showUiFeedback(e.target);
+        // Give some UI feedback, use delegateTarget in case the element has
+        // some html formatting and target is a subelement of the element
+        // the event was bound to
+        showUiFeedback(e.delegateTarget);
         
         // Toggle fan state
         var requestedFanState = (targetFanState == "on") ? "auto" : "on";
@@ -482,7 +497,7 @@ $(document).ready(function(){
   <div class="center">
     <span class="arrow minus"><i class="material-icons">keyboard_arrow_left</i></span>
     <span class="arrow plus"><i class="material-icons">keyboard_arrow_right</i></span>
-    <span class="preset"><span class="preset1">P1</span><span class="preset2">P2</span><span class="preset3">P3</span></span>
+    <span class="preset preset1">P1</span><span class="preset preset2">P2</span><span class="preset preset3">P3</span>
     <span class="fan">&#9762; auto</span>
     <div class="small">
         <span class="heat">19</span>

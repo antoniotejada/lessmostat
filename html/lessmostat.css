@@ -244,19 +244,19 @@ body {
   text-align: center;
 }
 
-.thermostat .center .preset .preset1 {
+.thermostat .center .preset1 {
   display: block;
   position: absolute;
   transform: translate(35px, 35px) rotate(-45deg);
 }
 
-.thermostat .center .preset .preset2 {
+.thermostat .center .preset2 {
   display: block;
   position: absolute;
   transform: translate(115px, 10px) rotate(0deg);
 }
 
-.thermostat .center .preset .preset3 {
+.thermostat .center .preset3 {
   display: block;
   position: absolute;
   transform: translate(190px, 35px) rotate(45deg)
