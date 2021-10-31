@@ -245,7 +245,7 @@ function targetDegToDisplay(targetDeg) {
     
     // Turn 0.5 into 1/2 for aesthetics
     if ((targetDegDisplay - Math.trunc(targetDegDisplay)) == 0.5) {
-        targetDegDisplay = "" + Math.trunc(targetDegDisplay) + "<sup>" + halfChar + "</sup>";
+        targetDegDisplay = "" + Math.trunc(targetDegDisplay) + halfChar;
     }
 
     return targetDegDisplay;
@@ -323,13 +323,34 @@ function updateGr() {
         $(".fan").css("color", "gray");
     }
 
+    // Create the HTML preset elements, but only if the array length changed
+    // (otherwise removing and creating HTML elements disables showUiFeedback
+    // half way the animation, since it now refers to a removed element)
+    // Note numSectors includes the two arrows at -90 and +90 in the calculation
+    var numSectors = presets.length + 1;
+    var degsPerPreset = 180 / numSectors;
+    if (presets.length != $(".presets").children().length) {
+        $(".presets").empty();
+        for (var i = 0; i < presets.length; ++i) {
+            // Note the presetN class needs to go at the end of the class string
+            // so the index can be easily found in the event handler
+            var preset = $('<span class="preset"><span class="preset-number preset' + (i+1) + '"></span></span>');
+            var presetRotation = ((i+1) * degsPerPreset) - (((degsPerPreset * numSectors) / 2.0));
+            preset.css("transform", "translate(-50%, -50%) rotate(" + presetRotation + "deg)");
+            $(".presets").append(preset);
+        }
+    }
+
+    // Update the existing HTML preset elements
     for (var i = 0; i < presets.length; ++i) {
         var text = "";
+        var presetNumber = $(".preset" + (i + 1))
+
         if (presets[i].targetFanState == "on") {
             text += "<small>"+fanChar+"</small>";
         }
         text += targetDegToDisplay(presets[i].targetDeg)
-        $(".preset" + (i + 1)).html(text);
+        presetNumber.html(text);
     }
 }
 
@@ -347,12 +368,14 @@ $(document).ready(function(){
     MQTTconnect();
 
     // Context menu is long tap on mobile, right click on desktop
-    $(".preset").on('contextmenu', function(e) {
+    $(".presets").on('contextmenu', function(e) {
         // Store the preset on long tap/right click
 
-        // Use delegateTarget in case the element has some html formatting and
-        // target is a subelement of the element the event was bound to
-        var presetN = e.delegateTarget;
+        // Find the closest ancestor to the event target that has a
+        // preset-number class (this may not be the event target if the
+        // event target is a subelement of the preset, like a formatted HTML
+        // element)
+        var presetN = e.target.closest(".preset-number");
         
         // Give some UI feedback
         showUiFeedback(presetN);
@@ -370,7 +393,7 @@ $(document).ready(function(){
         mqtt.send(message);
     });
 
-    $(".preset").mousedown(function(e) {
+    $(".presets").on("mousedown", function(e) {
         // Set the preset on short tap/left click
 
         // On mobile context menu swallows the mousedown event, on desktop 
@@ -378,9 +401,11 @@ $(document).ready(function(){
         // trap only which = 1
         dbg("mousedown on " + e.delegateTarget.className + " which " + e.which + " event " + JSON.stringify(e));
         if (e.which == 1) {
-            // Use delegateTarget in case the element has some html formatting
-            // and target is a subelement of the element the event was bound to
-            var presetN = e.delegateTarget;
+            // Find the closest ancestor to the event target that has a
+            // preset-number class (this may not be the event target if the
+            // event target is a subelement of the preset, like a formatted HTML
+            // element)
+            var presetN = e.target.closest(".preset-number");
             
             // Give some UI feedback 
             showUiFeedback(presetN);
@@ -497,13 +522,22 @@ $(document).ready(function(){
   <div class="center">
     <span class="arrow minus"><i class="material-icons">keyboard_arrow_left</i></span>
     <span class="arrow plus"><i class="material-icons">keyboard_arrow_right</i></span>
-    <span class="preset preset1">P1</span><span class="preset preset2">P2</span><span class="preset preset3">P3</span>
-    <span class="fan">&#9762; auto</span>
     <div class="small">
         <span class="heat">19</span>
         <span class="units">&#8451;</span>
         <span class="util">44%</span>
     </div>
+    <!--  
+        presets taps z-fight with .heat and .arrow, declare them after those so
+        they have precedence when tapping on them 
+
+        Note each preset HTML element is created in updateGr depending on the
+        number of presets stored in the thermostat
+    -->
+    <span class="presets"></span>
+    <span class="fan">&#9762; auto</span>
+    
+    
   </div>
 </div>
 </body>
