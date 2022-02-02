@@ -101,14 +101,15 @@ def read_config(state):
             state["config"].update(json.loads(js))
 
             # Validate the configuration
-
-
             if (len(state["config"]["fan_rules"]) == 0):
                 # If no fan rules, assume auto
                 state["config"]["fan_rules"] = [ { "state" : "auto" } ]
 
-            
-
+            # Old configs without heating mode default to cooling
+            # XXX Ideally heating/cooling should be a rule thing and allow
+            #     a min temp under which to heat, and max temp over which to cool
+            if ("mode" not in state["config"]):
+                state["config"]["mode"] = "cooling"
 
     except Exception as e:
         print("Exception reading config file %s" % config_filename, e)
@@ -223,6 +224,29 @@ def sub_cb(client, topic, msg):
             }
             # XXX Should this publish only the delta?
             publish_state_message(client)
+
+        elif (topic.endswith("control/mode")):
+            # Switch heating/cooling mode
+
+            # As a safety measure, don't start/stop AC when switching modes,
+            # 1) Ignore switching if the ac is already working
+            # 2) set the target temperature to the current one before switching
+            # Note switching to the same mode will cause the temperature to be reset
+            if (state["ac"] == "on"):
+                print("Ignoring control/mode request", d["state"],"while ac is on")
+
+            else:
+                # XXX This assumes there's only one rule 
+                state["config"]["ac_rules"] = [
+                    { "state" : "on", "temp" : state["sensor"]["temp"] },
+                ]
+                if (d["state"] == "cooling"):
+                    currentMode = "cooling"
+                else:
+                    currentMode = "heating"
+                state["config"]["mode"] = currentMode
+                # XXX Should this publish only the delta?
+                publish_state_message(client)
 
             
     except Exception as e:
@@ -340,8 +364,11 @@ state = {
     #     restarting the program
     "config" : {
         "mqtt_broker" : "192.168.8.200",
-        # The AC has a single rule which is to start at the given temperature +
-        # on_threshold and stop at the temperature - off_threshold
+        # The AC has a single rule which is to 
+        # - in cooling mode, start at the given temperature + hi_threshold and
+        #   stop at the temperature - lo_threshold
+        # - in heating mode, start at the given temperature - lo_threshold and
+        #   stop at the temperature + hi_threshold
         "ac_rules" : [
             { "state" : "on", "temp" : 30 },
         ],
@@ -350,10 +377,14 @@ state = {
         "fan_rules" : [
             { "state" : "auto" }
         ],
-        # On and off thresholds in 1/10th of a celsius degree (ie will turn on
-        # at temp + on threshold and off at temp - off threshold)
-        "on_threshold_decidegs" : 4, 
-        "off_threshold_decidegs" : 4,
+        # Hi and low thresholds in 1/10th of a celsius degree (ie in cooling
+        # mode will turn on at temp + hi threshold and off at temp - low
+        # threshold, in heating will turn on at temp - low and off at temp + hi)
+        "lo_threshold_decidegs" : 4, 
+        "hi_threshold_decidegs" : 4,
+
+        # heating/cooling mode
+        "mode" : "cooling",
 
         # XXX Should this store the thresholds too?
         "presets" : [
@@ -395,8 +426,13 @@ def sync_time_with_ntp():
             break
 
         except OSError as e:
-            if (e.errno != errno.ETIMEDOUT):
+            # Note Micropython will return -ENOENT (OSError -2) instead of
+            # ENOENT (2) if the NTP server can't be found, normally because of
+            # network down
+            if (e.errno not in [errno.ETIMEDOUT, -errno.ENOENT]):
+                print("Unexpected NTP error %d" % e.errno)
                 raise
+
             else:
                 print("Timeout querying NTP, retries left %d, sleeping" % ntp_retries)
                 time.sleep(1)
@@ -409,8 +445,8 @@ def main():
         print("Initial state is", state)
 
         # Fetch some constant values from the config
-        on_threshold_decidegs = state["config"]["on_threshold_decidegs"]
-        off_threshold_decidegs = state["config"]["off_threshold_decidegs"]
+        hi_threshold_decidegs = state["config"]["hi_threshold_decidegs"]
+        lo_threshold_decidegs = state["config"]["lo_threshold_decidegs"]
         mqtt_broker = state["config"]["mqtt_broker"]
 
         # Update time with NTP
@@ -488,6 +524,10 @@ def main():
             #     drift direction, do we care?
             if ((get_epoch() - last_ntp_sync_time) >= min_ntp_sync_time):
                 sync_time_with_ntp()
+                # Note this may not have sync'ed if sync_time_with_ntp hit a
+                # timeout or network down, but will still wait to sync again.
+                # That's ok since we still want to wait some time before trying
+                # to sync again (and possibly timeout again)
                 last_ntp_sync_time = get_epoch()
 
             # Wait some seconds between reporting sensor data (the wait could be
@@ -510,17 +550,30 @@ def main():
                 # XXX This only needs checking if the rules changed, since the
                 #     temperature is only updated above
                 ac_rules = state["config"]["ac_rules"]
+                # XXX Note heating/cooling assumes the right wire (white heating
+                #     / yellow for cooling) is being driven by the ac_on relay.
+                #     Ideally this should use a three or four-channel relay,
+                #     another option is to connect the green wire (fan) to both,
+                #     drive heating with the current fan relay the and lose
+                #     independent fan control?
+                heating = (state["config"]["mode"] == "heating")
+                cooling = not heating
                 for rule in ac_rules:
                     rule_state = rule["state"]
                     rule_temp = rule.get("temp", None)
+                    # XXX In heating mode the AC seems to wait for around one
+                    #     minute to turn the fan off, there should be a way to
+                    #     put that safety rule
                     if (rule_temp is not None):
+                        under_threshold = (temp*10 <= rule_temp*10 - lo_threshold_decidegs)
+                        over_threshold = (temp*10 >= rule_temp*10 + hi_threshold_decidegs)
                         if ((state["ac"] != "on") and (rule_state == "on") and 
-                            (temp*10 >= rule_temp*10 + on_threshold_decidegs)):
+                            ((heating and under_threshold) or (cooling and over_threshold))):
                             print("Starting ac")
                             turn_ac(uart, client, True)
                             
                         elif ((state["ac"] != "off") and (rule_state == "on") and 
-                            (temp*10 <= rule_temp*10 - off_threshold_decidegs)):
+                            ((heating and over_threshold) or (cooling and under_threshold))):
                             print("Stopping ac")
                             turn_ac(uart, client, False)
                 

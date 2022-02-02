@@ -8,7 +8,7 @@
 This is a 
 - solder-less: no wires to solder, all wires screwed
 - resistor-less: no need to add resistors anywhere
-- c-wire less: thermostat is powered by an external 5V power supply, no need for a [C wire](https://www.honeywellhome.com/us/en/support/everything-you-need-to-know-about-a-c-wire/) coming from the AC, and only red, yelllow and green wires are used.
+- c-wire less: thermostat is powered by an external 5V power supply, no need for a [C wire](https://www.honeywellhome.com/us/en/support/everything-you-need-to-know-about-a-c-wire/) coming from the AC, and only red, yelllow (cooling mode) or white (heating mode) and green wires are used.
 - costless: less than $25
 - wireless thermostat: Based on micropython and esp8266 WIFI chip, programmable via WIFI, with presets and fan and ac utilization display.
 
@@ -26,6 +26,7 @@ This is a
 
 ![image](block_diagram.png)
 
+For heating mode, connect the white (heating) wire instead of the yellow (cooling) wire.
 ## Hardware
 
 - $14.69 [ESP8266 Dual Channel WiFi Relay Board On-board ESP-01 Smart Home Phone APP Remote Switch Module 5940mm](https://www.amazon.com/dp/B07MNLJW1P)  
@@ -53,10 +54,10 @@ Plus a Raspberry Pi or any machine that can host a web page and an MQTT broker.
 
 ### Raspberry Pi 
 (any Webserver/MQTT broker)
-- Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ, 
+- Thermostat web page based on https://codepen.io/simoberny/pen/wrGoZZ and related css and fonts included in the external directory
   - Copyright (c) 2021 by Simone Bernabè (https://codepen.io/simoberny/pen/wrGoZZ)
-- Paho MQTT javascript library linked directly from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.js
-- jquery linked directly from https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js
+- Paho MQTT javascript library from https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.js included in the external directory.
+- jquery from https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js included in the external directory
 - mosquitto MQTT broker
 - lighttpd (any webserver)
 
@@ -207,7 +208,7 @@ import webrepl_setup
     ```
     - and the subscriber console should show the message from the esp8266
     ```bash
-    apartment/lessmostat/info/state {"state": {"ac": "off", "config": {"on_threshold_decidegs": 4, "off_threshold_decidegs": 4, "mqtt_broker": "192.168.8.200", "ac_rules": [{"state": "on", "temp": 26}], "fan_rules": []}, "fan": "off", "fan_mod_ts": 1633965621, "ac_mod_ts": 1633965621, "sensor": {"humid": 48.8, "temp": 26.0}}, "ts": 1633966434}
+    apartment/lessmostat/info/state {"state": {"config": {"ac_rules": [{"state": "on", "temp": 20.5}], "mqtt_broker": "192.168.8.200", "fan_rules": [{"state": "auto"}], "lo_threshold_decidegs": 4, "hi_threshold_decidegs": 4, "mode": "heating", "presets": [{"fan": {"state": "auto"}, "ac": {"state": "on", "temp": 22}}, {"fan": {"state": "auto"}, "ac": {"state": "on", "temp": 25}}, {"fan": {"state": "auto"}, "ac": {"state": "on", "temp": 28}}]}, "fan_mod_ts": 1643823728, "ac": "off", "ac_mod_ts": 1643823728, "ac_uptime": 0, "fan": "off", "start_ts": 1643823728, "fan_uptime": 0, "sensor": {"humid": 55.9, "temp": 22.1}}, "ts": 1643824271}
     ```
 - Access http://webserverip:port/lessmostat.html from any browser and operate the lessmostat!
 

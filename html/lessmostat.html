@@ -6,9 +6,12 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="lessmostat.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" type="text/javascript"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.js" type="text/javascript"></script>
+    <!-- <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons"> -->
+    <link rel="stylesheet" href="external/material_icons.css">
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" type="text/javascript"></script> -->
+    <script src="external/jquery.min.js" type="text/javascript"></script>
+    <!--  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.js" type="text/javascript"></script> -->
+    <script src="external/paho-mqtt.js" type="text/javascript"></script>
     <!-- from https://thenounproject.com/term/thermostat/614999/ -->
     <link rel="icon" type="image/svg+xml" href="lessmostat.svg">
 <script type = "text/javascript" language = "javascript">
@@ -26,6 +29,7 @@ var currentAcState = "unknown";
 var displayCelsius = true;
 var targetFanState = "auto";
 var currentFanState = "unknown";
+var currentMode = "unknown"; // "heating" / "cooling"
 var acUptime = 0;
 var acLastModTime = 0;
 var fanUptime = 0;
@@ -98,7 +102,8 @@ function onMessageArrived(message) {
         acLastModTime = data.state.ac_mod_ts;
         fanUptime = data.state.fan_uptime;
         fanLastModTime = data.state.fan_mod_ts;
-    
+        currentMode = data.state.config.mode;
+
         updateGr();
     } else if (topic == topic_root + "info/ac") {
         currentAcState = data.state;
@@ -134,6 +139,15 @@ function requestFanState(newFanState) {
     });
     var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/fan";
+    mqtt.send(message);
+}
+
+function requestMode(newMode) {
+    var msg = timestamp_message({
+        state : newMode, 
+    });
+    var message = new Paho.Message(JSON.stringify(msg));
+    message.destinationName = topic_root + "control/mode";
     mqtt.send(message);
 }
 
@@ -194,6 +208,7 @@ const fahrenheitChar = '\u2109';
 const thermometerChar = '\uD83C\uDF21';
 const dropletChar = '\uD83D\uDCA7';
 const flakeChar = '\u2746';
+const fireChar = '\uD83D\uDD25';
 
 function degToDegrees(deg) {
     var offsetDeg = deg - minDeg;    
@@ -290,10 +305,12 @@ function updateGr() {
     fanUtilization = (fanUtilization * 100.0) / (lastMessageTime - startTime);
     var fanUtilizationDisplay = roundDecimals(fanUtilization, 1);
 
+    // XXX The pct usage of AC should probably be split between heating and cooling?
+    var modeChar = (currentMode == "cooling") ? flakeChar : fireChar;
     $(".heat").text("" + currentDegDisplay);
     $(".units").text("" + thermometerChar + unitChar + ' '  + dropletChar + currentHumidDisplay + "%");
     $(".util").html(
-        '<span  style="color:blue">' + flakeChar + '</span>' + acUtilizationDisplay + "% " + 
+        '<span  style="color:blue">' + modeChar + '</span>' + acUtilizationDisplay + "% " + 
         '<span  style="color:green">' + fanChar + '</span>' + fanUtilizationDisplay + "%");
     $(".ext").html("" + targetDegToDisplay(targetDeg));
     $(".number").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
@@ -303,13 +320,18 @@ function updateGr() {
     $(".fill2").css("transform", "rotate("+ (Math.min(degToDegrees(currentDeg), 1) - 180) +"deg)");
     $(".shadow").css("animation", "none");
     if (currentAcState == "on") {
-        $(".cooling").text("cooling");
-        $(".cooling").css("color", "cyan");
+        if (currentMode == "cooling") {
+            $(".cooling").text(modeChar + " cooling");
+            $(".cooling").css("color", "cyan");
+        } else {
+            $(".cooling").text(modeChar + " heating");
+            $(".cooling").css("color", "#ff9e23");
+        }
     } else if (currentFanState == "on") {
-        $(".cooling").text("blowing");
+        $(".cooling").text(modeChar + " blowing");
         $(".cooling").css("color", "lightgreen");
     } else {
-        $(".cooling").text("idle");
+        $(".cooling").text(modeChar + " idle");
         $(".cooling").css("color", "#2e2c3a")
     }
     if (targetFanState == "on") {
@@ -496,6 +518,17 @@ $(document).ready(function(){
         // Toggle fan state
         var requestedFanState = (targetFanState == "on") ? "auto" : "on";
         requestFanState(requestedFanState);
+    });
+
+    $(".cooling").mousedown(function(e) {
+        // Give some UI feedback, use delegateTarget in case the element has
+        // some html formatting and target is a subelement of the element
+        // the event was bound to
+        showUiFeedback(e.delegateTarget);
+        
+        // Toggle fan state
+        var requestedMode = (currentMode == "heating") ? "cooling" : "heating";
+        requestMode(requestedMode);
     });
 });
 
