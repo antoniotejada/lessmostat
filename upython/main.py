@@ -1,32 +1,25 @@
 #!/usr/bin/env python
-import lessmostat
 import machine
 import time
-import sys
 
+# Sleep some before importing local modules so web repl can reconnect, log in,
+# and see any compile errors 
+# See https://forum.micropython.org/viewtopic.php?t=7457
+time.sleep(5)
+
+import lessmostat
+from logging import log_set_filename, log_exception
+
+log_set_filename("lessmostat.log")
+
+# XXX Could this use multiprocess so the webrepl can be used at the same time?
 try:
     lessmostat.main()
 
 except Exception as e:
-    try:
-        (year, month, mday, hour, minute, second, weekday, yearday) = time.localtime()
-        with open("lessmostat.log", "a") as f:
-            f.write("%d-%02d-%02d %02d:%02d:%02d Exception %s " % (
-                year, month, mday,
-                hour, minute, second,
-                repr(e)
-            ))
-            sys.print_exception(e, f)
-            
-    except Exception as e:
-        print("Exception writing exception to file: %s" % repr(e))
+    log_exception("Exception running lessmostat.main", e)
 
-    # XXX This error handling is pretty heavy-handed and the wrong thing to do,
-    #     since after reset it assumes the relays are closed, which doesn't seem
-    #     to be the case for machine.reset (although it is for a power unplug reset)
-    #     It should handle internet and mqtt errors as soft errors, and retry
-    #     them, while keeping the thermostat function running.
-    #     Other errors (out of memory?) could be handled the hard way
-    #     Probably this reset doesn't even reconnect to the wifi anyway?
+    # Do some hysteresis sleep and a hard reset, exceptions arriving here are
+    # supposed to be severe enough that they require hard reset
     time.sleep(20)
     machine.reset()

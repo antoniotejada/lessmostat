@@ -17,7 +17,6 @@ This is a
 - alexa integration with fauxmo/fauxhue
 - complex hourly/daily/weekly/dusk/dawn scheduling
 - charts statistics, integration with influxdb/grafana
-- MQTT robustness, esp8266 reconnection on wifi/broker loss, etc 
 - deep sleep/batteries
 - security, MQTT SSL
 - cloud instead of Raspberry Pi (eg AWS MQTT)

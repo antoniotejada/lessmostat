@@ -1,4 +1,7 @@
-# Editable at https://dreampuf.github.io/GraphvizOnline/
+# Editable at 
+# - https://dreampuf.github.io/GraphvizOnline/
+# - http://viz-js.com/
+# - http://webgraphviz.com/
 # or embeddable in some markdowns as 
 # ```viz
 # ...
@@ -9,7 +12,7 @@ digraph G {
 
     pwr [shape=box, label="5V"];
 
-    dht [shape=record, label="{DHT22\nsensor|{data|<plus>+|<minus>-}}", height=1];
+    dht [shape=record, label="{DHT22\nsensor|{<data>data|<plus>+|<minus>-}}", height=1];
 
     ac [shape=box, label="A/C", height=1];
 
