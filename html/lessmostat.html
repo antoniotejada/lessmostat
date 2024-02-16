@@ -24,9 +24,12 @@ var port = 9001;
 
 var targetDeg = 35;
 var currentDeg = 30;
+var targetHumid = 65;
 var currentHumid = 44;
 var currentAcState = "unknown";
-var displayCelsius = true;
+const displayModes = ["celsius", "fahrenheit", "humidity"];
+// One of "celsius", "fahrenheit", "humidity"
+var displayMode = displayModes[0];
 var targetFanState = "auto";
 var currentFanState = "unknown";
 var currentMode = "unknown"; // "heating" / "cooling"
@@ -88,10 +91,13 @@ function onMessageArrived(message) {
             presets[i] = { 
                 "targetDeg" : preset_rules[i].ac.temp, 
                 "targetFanState" : preset_rules[i].fan.state,
+                // XXX Remove once all the rules have humidity
+                "targetHumid" : preset_rules[i].ac.humid || 65,
             }
         }
 
         targetDeg = ac_on_rule.temp;
+        targetHumid = ac_on_rule.humid;
         currentAcState = data.state.ac;
         currentDeg = data.state.sensor.temp;
         currentHumid = data.state.sensor.humid;
@@ -118,23 +124,30 @@ function onMessageArrived(message) {
     }
 };	
 
-function timestamp_message(msg) {
+function timestampMessage(msg) {
     msg.ts = Math.round((new Date()).getTime() / 1000); 
     return msg;
 }
 
-function requestTargetDeg(newTargetDeg) {
-    var msg = timestamp_message({ 
-        state : "on", 
-        temp : newTargetDeg 
+function displayingTemp(displayMode) {
+    return (displayMode != "humidity");
+}
+
+function requestTargets(targetDeg, targetHumid) {
+    var msg = timestampMessage({
+        state: "on",
+        temp: targetDeg,
+        humid: targetHumid
     });
-    var message = new Paho.Message(JSON.stringify(msg));
+    msg = JSON.stringify(msg)
+    var message = new Paho.Message(msg);
     message.destinationName = topic_root + "control/ac";
+    dbg("requestTargets " + msg);
     mqtt.send(message);
 }
 
 function requestFanState(newFanState) {
-    var msg = timestamp_message({
+    var msg = timestampMessage({
         state : newFanState, 
     });
     var message = new Paho.Message(JSON.stringify(msg));
@@ -143,7 +156,7 @@ function requestFanState(newFanState) {
 }
 
 function requestMode(newMode) {
-    var msg = timestamp_message({
+    var msg = timestampMessage({
         state : newMode, 
     });
     var message = new Paho.Message(JSON.stringify(msg));
@@ -155,7 +168,7 @@ function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
     info("Connected ");
     mqtt.subscribe(topic_root + "#");
-    var msg = timestamp_message({});
+    var msg = timestampMessage({});
     var message = new Paho.Message(JSON.stringify(msg));
     message.destinationName = topic_root + "control/state";
     mqtt.send(message);
@@ -199,6 +212,10 @@ const degreesUnused = 40;
 // Celsius for 0+degreesUnused/2 and 360-degreesUnused/2 circular degrees
 const maxDeg = 35;
 const minDeg = 15;
+// Percentage humid for 0+degreesUnused/2 and 360-degreesUnused/2 circular
+// degrees
+const maxHumid = 70;
+const minHumid = 30;
 
 // Unicode symbol chars
 const halfChar = '\u00BD';
@@ -210,11 +227,24 @@ const dropletChar = '\uD83D\uDCA7';
 const flakeChar = '\u2746';
 const fireChar = '\uD83D\uDD25';
 
+/**
+ * Temperature in Celsius to angle in degrees
+ */
 function degToDegrees(deg) {
-    var offsetDeg = deg - minDeg;    
+    var offsetDeg = deg - minDeg;
     var degreesPerDeg = (360.0 - degreesUnused) / (maxDeg - minDeg);
     
     return -180 + degreesUnused/2.0 + offsetDeg * degreesPerDeg;
+}
+
+/**
+ * Humidity in percentage to angle in degrees
+ */
+function humidToDegrees(humid) {
+    var offsetHumid = humid - minHumid;
+    var degreesPerHumid = (360.0 - degreesUnused) / (maxHumid - minHumid);
+    
+    return -180 + degreesUnused/2.0 + offsetHumid * degreesPerHumid;
 }
 
 function roundDecimals(f, numDecimals) {
@@ -226,7 +256,7 @@ function truncTargetDegX(degX) {
     // In fahrenheit mode, target deg must be integer, in Celsius it must be 
     // integer or 0.5 fractional
     var truncDegX;
-    if (displayCelsius) {
+    if (displayMode == "celsius") {
         truncDegX = degX;
         if (degX != Math.trunc(degX)) {
             truncDegX = Math.trunc(degX) + 0.5;
@@ -248,11 +278,11 @@ function f_to_c(fdeg) {
     return ((fdeg - 32.0) * 5.0) / 9.0;
 }
 
-function targetDegToDisplay(targetDeg) {
-    var targetDegDisplay = targetDeg;
+function targetToDisplay(targetDegOrHumid, displayMode) {
+    var targetDegDisplay = targetDegOrHumid;
 
-    if (!displayCelsius) {
-        targetDegDisplay = c_to_f(targetDeg);
+    if (displayMode == "fahrenheit") {
+        targetDegDisplay = c_to_f(targetDegOrHumid);
     }
 
     // Round target to integer in fahrenheit mode, 0.5 or 0.0 in celsius
@@ -273,10 +303,10 @@ function updateGr() {
 
     // Fahrenheit / Celsius
     var unitChar = celsiusChar;
-    if (!displayCelsius) {
+    if (displayMode == "fahrenheit") {
         currentDegDisplay = c_to_f(currentDeg);
         unitChar = fahrenheitChar;
-    }
+    } 
     // Round to one decimal
     currentDegDisplay = roundDecimals(currentDegDisplay, 1);
     currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
@@ -307,17 +337,35 @@ function updateGr() {
 
     // XXX The pct usage of AC should probably be split between heating and cooling?
     var modeChar = (currentMode == "cooling") ? flakeChar : fireChar;
-    $(".heat").text("" + currentDegDisplay);
-    $(".units").text("" + thermometerChar + unitChar + ' '  + dropletChar + currentHumidDisplay + "%");
+    var current = currentDeg;
+    var currentDisplay = currentDegDisplay;
+    var target = targetDeg;
+    var currentDegrees = degToDegrees(current);
+    var targetDegrees = degToDegrees(target);
+    if (displayingTemp(displayMode)) {
+        $(".fill,.shadow-cube").removeClass("humid").addClass("temp");
+        $(".units").text("" + thermometerChar + unitChar + ' '  + dropletChar + currentHumidDisplay + "%");
+    } else {
+        current = currentHumid;
+        currentDisplay = currentHumidDisplay;
+        target = targetHumid;
+        currentDegrees = humidToDegrees(current);
+        targetDegrees = humidToDegrees(target);
+
+        $(".fill,.shadow-cube").removeClass("temp").addClass("humid");
+        $(".units").text("" + thermometerChar + roundDecimals(c_to_f(currentDeg), 1) + fahrenheitChar + ' ' + currentDeg + celsiusChar + ' ');
+    }
+
+    $(".heat").text("" + currentDisplay);
+    $(".fill1").css("transform", "rotate("+ (Math.max(currentDegrees, 0)) +"deg)");
+    $(".fill2").css("transform", "rotate("+ (Math.min(currentDegrees, 1) - 180) +"deg)");
+    $(".ext").html("" + targetToDisplay(target, displayMode));
+    $(".number,.shadow").css("transform", "translate(-50%, -50%) rotate("+ targetDegrees + "deg)");
+    
     $(".util").html(
         '<span  style="color:blue">' + modeChar + '</span>' + acUtilizationDisplay + "% " + 
         '<span  style="color:green">' + fanChar + '</span>' + fanUtilizationDisplay + "%");
-    $(".ext").html("" + targetDegToDisplay(targetDeg));
-    $(".number").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
-    $(".shadow").css("transform", "translate(-50%, -50%) rotate("+ degToDegrees(targetDeg)+"deg)");
     $(".fill").css("animation", "none");
-    $(".fill1").css("transform", "rotate("+ (Math.max(degToDegrees(currentDeg), 0)) +"deg)");
-    $(".fill2").css("transform", "rotate("+ (Math.min(degToDegrees(currentDeg), 1) - 180) +"deg)");
     $(".shadow").css("animation", "none");
     if (currentAcState == "on") {
         if (currentMode == "cooling") {
@@ -371,7 +419,9 @@ function updateGr() {
         if (presets[i].targetFanState == "on") {
             text += "<small>"+fanChar+"</small>";
         }
-        text += targetDegToDisplay(presets[i].targetDeg)
+        // XXX Update the shadow cube with the other target too?
+        text += targetToDisplay(displayingTemp(displayMode) ? presets[i].targetDeg : presets[i].targetHumid, displayMode);
+        text += "<sup><small><small>"+targetToDisplay(displayingTemp(displayMode) ? presets[i].targetHumid : presets[i].targetDeg, displayingTemp(displayMode) ? "humidity" : "celsius")+"</small></small></sup>";
         presetNumber.html(text);
     }
 }
@@ -406,8 +456,11 @@ $(document).ready(function(){
         e.stopPropagation();
         
         var presetIndex = parseInt(presetN.className[presetN.className.length-1])-1;
+        // XXX This stores all three humidity, temp and fan targets as a single
+        //     preset, should this allow to store at least humidity and temp
+        //     independently?
         dbg("Storing preset " + presetIndex);
-        var msg = timestamp_message({ 
+        var msg = timestampMessage({ 
             index : presetIndex,
         });
         var message = new Paho.Message(JSON.stringify(msg));
@@ -435,23 +488,30 @@ $(document).ready(function(){
             var presetIndex = parseInt(presetN.className[presetN.className.length-1])-1;
             dbg("Setting preset " + presetIndex);
             var requestedTargetDeg = presets[presetIndex].targetDeg;
+            var requestedTargetHumid = presets[presetIndex].targetHumid;
             var requestedFanState = presets[presetIndex].targetFanState;
 
-            dbg("Requesting fan " + requestedFanState + " ac " + requestedTargetDeg);
+            dbg("Requesting fan " + requestedFanState + " temp " + requestedTargetDeg + 
+                " humid " + requestedTargetHumid);
             requestFanState(requestedFanState);
-            requestTargetDeg(requestedTargetDeg);
+            requestTargets(requestedTargetDeg, requestedTargetHumid);
         }
     } );
 
     $(".minus").mousedown(function(e){ 
-        if (targetDeg > minDeg){
+        const target = displayingTemp(displayMode) ? targetDeg : targetHumid;
+        const minTarget = displayingTemp(displayMode) ? minDeg : minHumid;
+        if (target > minTarget) {
             // Give some UI feedback, use delegateTarget in case the element has
             // some html formatting and target is a subelement of the element
             // the event was bound to
             showUiFeedback(e.delegateTarget);
 
-            var requestedTargetDeg;
-            if (displayCelsius) {
+            var requestedTargetDeg = targetDeg;
+            var requestedTargetHumid = targetHumid;
+            if (displayMode == "humidity") {
+                requestedTargetHumid = targetHumid - 1.0;
+            } else if (displayMode == "celsius") {
                 requestedTargetDeg = truncTargetDegX(targetDeg) - 0.5;
             } else {
                 var targetDegF = c_to_f(targetDeg);
@@ -466,23 +526,28 @@ $(document).ready(function(){
                 );
             }
             
-            // Don't update the local targetDeg until we receive the
-            // confirmation from the server, this prevents the case where we
-            // would locally update targetDeg multiple times, then receiving the
-            // updates and updating the local targetDeg to some stale value
-            requestTargetDeg(requestedTargetDeg);
+            // Don't update the local targets until we receive the confirmation
+            // from the server, this prevents the case where we would locally
+            // update targets multiple times, then receiving the updates and
+            // updating the local targets to some stale value
+            requestTargets(requestedTargetDeg, requestedTargetHumid);
         }
     });
 
     $(".plus").mousedown(function(e){
-        if (targetDeg < maxDeg){
+        const target = displayingTemp(displayMode) ? targetDeg : targetHumid;
+        const maxTarget = displayingTemp(displayMode) ? maxDeg : maxHumid;
+        if (target < maxTarget){
             // Give some UI feedback, use delegateTarget in case the element has
             // some html formatting and target is a subelement of the element
             // the event was bound to
             showUiFeedback(e.delegateTarget);
             
-            var requestedTargetDeg;
-            if (displayCelsius) {
+            var requestedTargetDeg = targetDeg;
+            var requestedTargetHumid = targetHumid;
+            if (displayMode == "humidity") {
+                requestedTargetHumid = targetHumid + 1.0;
+            } else if (displayMode == "celsius") {
                 requestedTargetDeg = truncTargetDegX(targetDeg) + 0.5;
             } else {
                 var targetDegF = c_to_f(targetDeg);
@@ -496,16 +561,18 @@ $(document).ready(function(){
                     " requestedTargetDeg " + requestedTargetDeg
                 );
             }
-            // Don't update the local targetDeg until we receive the
-            // confirmation from the server, this prevents the case where we
-            // would locally update targetDeg multiple times, then receiving the
-            // updates and updating the local targetDeg to some stale value
-            requestTargetDeg(requestedTargetDeg);
+            // Don't update the local targets until we receive the confirmation
+            // from the server, this prevents the case where we would locally
+            // update targets multiple times, then receiving the updates and
+            // updating the local targets to some stale value
+            requestTargets(requestedTargetDeg, requestedTargetHumid);
         }  
     });
     
     $(".heat").mousedown(function(e) {
-        displayCelsius = !displayCelsius;
+        // Cycle displayMode
+        const displayModeIndex = displayModes.indexOf(displayMode);
+        displayMode = displayModes[(displayModeIndex + 1) % displayModes.length];
         updateGr();
     });
 
@@ -539,15 +606,15 @@ $(document).ready(function(){
   <div class="bar">
     <div class="inner_bar"></div>
     <div class='hold left'>
-      <div class='fill fill1'></div>
+      <div class='fill fill1 temp'></div>
     </div>
     <div class='hold right'>
-      <div class='fill fill2'></div>
+      <div class='fill fill2 temp'></div>
     </div>
     <span class="cooling">Cooling</span>
   </div>
   <div class="shadow">
-    <div class="shadow-cube"></div>
+    <div class="shadow-cube temp"></div>
   </div>
   <div class="number">
     <span class="ext">19</span>

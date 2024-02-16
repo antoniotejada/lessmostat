@@ -10,7 +10,7 @@ This is a
 - resistor-less: no need to add resistors anywhere
 - c-wire less: thermostat is powered by an external 5V power supply, no need for a [C wire](https://www.honeywellhome.com/us/en/support/everything-you-need-to-know-about-a-c-wire/) coming from the AC, and only red, yelllow (cooling mode) or white (heating mode) and green wires are used.
 - costless: less than $25
-- wireless thermostat: Based on micropython and esp8266 WIFI chip, programmable via WIFI, with presets and fan and ac utilization display.
+- wireless /thermostat: Based on micropython and esp8266 WIFI chip, humidity/temperature programmable via WIFI, with humidity/temperature presets and fan and ac utilization display.
 
 
 ## TODOs
@@ -20,6 +20,7 @@ This is a
 - deep sleep/batteries
 - security, MQTT SSL
 - cloud instead of Raspberry Pi (eg AWS MQTT)
+- on device http server
 
 ## Block Diagram
 
@@ -215,9 +216,9 @@ import webrepl_setup
 
 ### esp-01 information 
 
-![image](https://diyprojects.io/media/2020/09/esp01-esp01s-pinout-esp8266ex-767x811.jpg)
+![image](32c98dcd-7392-419f-b534-8cab6aab720e.jpg)
 
-https://diyprojects.io/esp01-get-started-arduino-platformio-ide-module-choose-pinout/
+https://www.utmel.com/components/esp-01-wi-fi-module-esp-01-pinout-programming-and-esp-01-vs-esp8266-faq?id=990
 
 ### esp8266 dual channel WIFI relay board
 

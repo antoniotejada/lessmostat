@@ -160,7 +160,7 @@ def sub_cb(client, topic, msg):
 
         elif (topic.endswith("control/ac")):
             state["config"]["ac_rules"] = [
-                { "state" : "on", "temp" : d["temp"] },
+                { "state" : "on", "temp" : d["temp"], "humid" : d["humid"] },
             ]
             # XXX Should this publish only the delta?
             mqtt_publish_state_message(client, state)
@@ -181,6 +181,8 @@ def sub_cb(client, topic, msg):
             }
             # XXX Should this publish only the delta?
             mqtt_publish_state_message(client, state)
+            
+            write_config(config_filename, state)
 
         elif (topic.endswith("control/mode")):
             # Switch heating/cooling mode
@@ -195,7 +197,7 @@ def sub_cb(client, topic, msg):
             else:
                 # XXX This assumes there's only one rule 
                 state["config"]["ac_rules"] = [
-                    { "state" : "on", "temp" : state["sensor"]["temp"] },
+                    { "state" : "on", "temp" : state["sensor"]["temp"], "humid" : state["sensor"]["humid"] },
                 ]
                 if (d["state"] == "cooling"):
                     currentMode = "cooling"
@@ -205,7 +207,7 @@ def sub_cb(client, topic, msg):
                 # XXX Should this publish only the delta?
                 mqtt_publish_state_message(client, state)
 
-            
+
     except Exception as e:
         log_exception("Exception handling topic %r message %r" % (topic, msg), e)
 
@@ -309,7 +311,7 @@ state = {
         # - in heating mode, start at the given temperature - lo_threshold and
         #   stop at the temperature + hi_threshold
         "ac_rules" : [
-            { "state" : "on", "temp" : 30 },
+            { "state" : "on", "temp" : 30, "humid" : 70 },
         ],
         # The fan has a single rule which is to set the fan to "on" (always
         # on or "auto" (match ac state)
@@ -327,14 +329,19 @@ state = {
         "lo_threshold_decidegs" : 4, 
         "hi_threshold_decidegs" : 4,
 
+        # Hi and low thresholds in 1/10th of a humidity percentage (ie will turn
+        # on at humid + hi threshold and off at humid - low threshold
+        "lo_threshold_decihumids" : 40,
+        "hi_threshold_decihumids" : 40,
+
         # heating/cooling mode
         "mode" : "cooling",
 
         # XXX Should this store the thresholds too?
         "presets" : [
-            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
-            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
-            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30 } },
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30, "humid" : 70 } },
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30, "humid" : 70 } },
+            { "fan" : { "state" : "auto" }, "ac" : { "state" : "on", "temp" : 30, "humid" : 70 } },
         ],
     }
 }
@@ -349,6 +356,8 @@ def main():
         # Fetch some constant values from the config
         hi_threshold_decidegs = state["config"]["hi_threshold_decidegs"]
         lo_threshold_decidegs = state["config"]["lo_threshold_decidegs"]
+        hi_threshold_decihumids = state["config"]["hi_threshold_decihumids"]
+        lo_threshold_decihumids = state["config"]["lo_threshold_decihumids"]
         mqtt_broker = state["config"]["mqtt_broker"]
 
         # Update time with NTP
@@ -443,7 +452,9 @@ def main():
                 
                 try:
                     # This raises OSERROR (-1), ECONNRESET (errno 114),
-                    # ECONNABORTED (errno 113) on error
+                    # ECONNABORTED (errno 103) on error
+                    # Also returns EHOSTUNREACH (errno 113) if it was never able
+                    # to connect
                     mqtt_check_msg(client)
 
                 except OSError as e:
@@ -475,18 +486,48 @@ def main():
                     # XXX In heating mode the AC seems to wait for around one
                     #     minute to turn the fan off, there should be a way to
                     #     put that safety rule
+                    turn_ac_on_count = 0
+                    turn_ac_off_count = 0
                     if (rule_temp is not None):
                         under_threshold = (temp*10 <= rule_temp*10 - lo_threshold_decidegs)
                         over_threshold = (temp*10 >= rule_temp*10 + hi_threshold_decidegs)
                         if ((state["ac"] != "on") and (rule_state == "on") and 
                             ((heating and under_threshold) or (cooling and over_threshold))):
-                            log_info("Starting ac")
-                            turn_ac(uart, client, True)
-                            
+                            turn_ac_on_count += 1
+
                         elif ((state["ac"] != "off") and (rule_state == "on") and 
                             ((heating and over_threshold) or (cooling and under_threshold))):
-                            log_info("Stopping ac")
-                            turn_ac(uart, client, False)
+                            turn_ac_off_count += 1
+
+                    rule_humid = rule.get("humid", None)
+                    if (rule_humid is not None):
+                        under_threshold = (humid*10 <= rule_humid*10 - lo_threshold_decihumids)
+                        over_threshold = (humid*10 >= rule_humid*10 + hi_threshold_decihumids)
+
+                        if ((state["ac"] != "on") and (rule_state == "on") and over_threshold):
+                            turn_ac_on_count +=1
+                            
+                        elif ((state["ac"] != "off") and (rule_state == "on") and under_threshold):
+                            turn_ac_off_count += 1
+
+                    # Turn AC off if any of temp or humid require it, turn off
+                    # if both temp and humid require it
+                    #
+                    # Note that due how thresholds work it's possible that the
+                    # AC gets turned on because of temp, but once below the temp
+                    # threshold it's kept on because of not being below the
+                    # humid threshold. This seems ok even if non-obvious, other
+                    # option would be to keep track of the rule that enabled the
+                    # ac and only allow that one to keep it on, but would
+                    # complicate the logic for little benefit?
+                    if (turn_ac_on_count >= 1):
+                        log_info("Starting ac, on %d off %d" % (turn_ac_on_count, turn_ac_off_count))
+                        turn_ac(uart, client, True)
+
+                    elif (turn_ac_off_count == 2):
+                        log_info("Stopping ac, on %d off %d" % (turn_ac_on_count, turn_ac_off_count))
+                        turn_ac(uart, client, False)
+
                 
                 fan_rules = state["config"]["fan_rules"]
                 for rule in fan_rules:

@@ -58,7 +58,8 @@ def sync_time_with_ntp():
     ntp_retries = 5
     while (ntp_retries > 0):
         try:
-            log_info("Querying NTP server")
+            # This can be noisy, log only failures to file
+            log_info("Querying NTP server", True)
             ntp_retries -= 1
             before = get_epoch()
             ntptime.settime()
@@ -68,7 +69,7 @@ def sync_time_with_ntp():
             # includes the time it takes to settime (which is less than one 
             # second for the NTP query, since it has a 1 second timeout, plus 
             # whatever time for the other calculations)
-            log_info("Got NTP, drift was around %d" % (after - before))
+            log_info("Got NTP, drift was around %d" % (after - before), True)
             break
 
         except OSError as e:

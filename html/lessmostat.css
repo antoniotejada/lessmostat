@@ -47,7 +47,13 @@ body {
   top: 0;
   width: 25px;
   height: 0px;
+  
+}
+.thermostat .shadow .shadow-cube.temp {
   box-shadow: 0 0 45px 13px rgba(255, 158, 35, 0.5);
+}
+.thermostat .shadow .shadow-cube.humid {
+  box-shadow: 0 0 45px 13px rgba(35, 158, 255, 0.5);
 }
 .thermostat .number {
   position: absolute;
@@ -111,11 +117,17 @@ body {
   border-radius: 100%;
   clip: rect(0px, 178px, 356px, 0px);
 }
-.thermostat .bar .fill1 {
+.thermostat .bar .fill1.temp {
   background: -webkit-linear-gradient(top, #ff4900 20%, #ff4900 100%);
 }
-.thermostat .bar .fill2 {
+.thermostat .bar .fill2.temp {
   background: -webkit-linear-gradient(top, #ff4900 40%, #ff9e23 100%);
+}
+.thermostat .bar .fill1.humid {
+  background: -webkit-linear-gradient(top, #0049ff 20%, #0049ff 100%);
+}
+.thermostat .bar .fill2.humid {
+  background: -webkit-linear-gradient(top, #0049ff 40%, #239eff 100%);
 }
 .thermostat .bar .right {
   z-index: 3;

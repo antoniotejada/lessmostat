@@ -209,6 +209,10 @@ if (deploy):
         recv_file(ws, log_filename, log_filename)
 
         # Break in and restart by sending Ctrl+C Ctrl+D
+        
+        # XXX Note this is a soft reset, different from machine.reset, which is
+        #     a hard reset, should this do a hard reset?
+        #     See https://docs.micropython.org/en/v1.8.6/wipy/wipy/tutorial/reset.html
         logger.info("Sending ctrl+c, ctrl+d")
         ws.send("\x03\x04")
 
@@ -242,6 +246,12 @@ if (forever):
             for l in f:
                 logger.info(l.strip())
 
+        # XXX Note that if the PC goes to sleep holding this connection it seems
+        #     to hang micropython's network stack (!) and you won't be able to
+        #     connect again via webrepl or have the device do any other network
+        #     (mqtt, etc). Make main.py use a watchdog that detects when local
+        #     network is not available and hard reset? See
+        #     https://github.com/micropython/webrepl/issues/36
         logger.info("Displaying console forever, press ctrl+c to end")
         line = ""
         while (True):
