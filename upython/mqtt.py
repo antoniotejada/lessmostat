@@ -43,7 +43,9 @@ def timestamp_message(msg):
     return msg
 
 def mqtt_create(mqtt_broker, client_id, topic_root, callback):
-    log_info("Creating MQTT client id %s for broker %s" % (client_id, mqtt_broker))
+    log_info("Creating MQTT client id %s for broker %s and topic %s" % (client_id, mqtt_broker, topic_root))
+    if (not topic_root.endswith("/")):
+        topic_root += "/"
 
     client = MQTTClient(client_id,  mqtt_broker)
 
@@ -72,6 +74,7 @@ def mqtt_connect(client):
         log_exception("Exception connecting to MQTT", e)
 
 def mqtt_publish_message(client, subtopic, msg):
+    log_info("Publishing client %s subtopic %s" % (client["id"], subtopic), True)
     js = json.dumps(timestamp_message(msg))
     try:
         # This raises OSERROR (-1), ENOTCONN (errno 107), ECONNRESET (errno

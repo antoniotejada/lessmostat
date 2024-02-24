@@ -49,10 +49,13 @@ body {
   height: 0px;
   
 }
-.thermostat .shadow .shadow-cube.temp {
+.thermostat .shadow.ac .shadow-cube {
+  box-shadow: 0 0 45px 13px rgba(35, 158, 255, 0.5);
+}
+.thermostat .shadow.heat .shadow-cube {
   box-shadow: 0 0 45px 13px rgba(255, 158, 35, 0.5);
 }
-.thermostat .shadow .shadow-cube.humid {
+.thermostat .shadow.humid .shadow-cube {
   box-shadow: 0 0 45px 13px rgba(35, 158, 255, 0.5);
 }
 .thermostat .number {
@@ -61,7 +64,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%) rotate(10deg);
   width: 40px;
-  height: 82%;
+  height: 86%;
   text-align: center;
   transition: 0.7s ease;
 }
@@ -206,7 +209,7 @@ body {
   font-weight: 300;
 }
 
-.thermostat .center .small .heat {
+.thermostat .center .small .current {
   display: block;
   line-height: 150px;
   font-size: 49px;
@@ -244,7 +247,7 @@ body {
   height: 90%;
   /* 
    * Disable tap/click events on the preset vertical bar since otherwise they
-   * would prevent events on top of .heat. Events will be re-enabled on the
+   * would prevent events on top of .current. Events will be re-enabled on the
    * preset number itself
    */
   pointer-events: none;

@@ -26,11 +26,11 @@ This is a
 
 ![image](block_diagram.png)
 
-For heating mode, connect the white (heating) wire instead of the yellow (cooling) wire.
+For heating mode, connect the white (heating) wire instead of the yellow (cooling) wire or, on a 4-relay system, connect the white (heating) wire to NO3 and red (power) wire to COM3
 ## Hardware
 
 - $14.69 [ESP8266 Dual Channel WiFi Relay Board On-board ESP-01 Smart Home Phone APP Remote Switch Module 5940mm](https://www.amazon.com/dp/B07MNLJW1P)  
-    - You will need the 4 relay version if you want AC **and** heater control [ESP8266 WiFi Relay Module, 4 Channel Relay Module DC 5V Smart Switch Relay Module for Smart Home IOT Transmission Phone APP Controller](https://www.amazon.com/Module-ESP8266-Channel-Transmission-Controller/dp/B07YL6Z4J2) (untested, another option is use the dual channel relay and lose independent fan control, so the fan is connected to both cooling and heating and only enabled when cooling or heating is on).
+    - You will need the 4 relay version if you want AC **and** heater control [ESP8266 ESP-01 4 Channel 5V WiFi Relay Module 5V IOT Wireless Smart Home Device WiFi Relay Internet of Things ESP-01 Module Board for Phone APP Remote Control](https://www.amazon.com/dp/B0BG2G4F3V) (another option is use the dual channel relay and lose independent fan control, so the fan is connected to both cooling and heating and only enabled when cooling or heating is on).
 - $14.37/2 [Gowoops 2pcs DHT22 / AM2302 Digital Humidity and Temperature Sensor Module for Arduino Raspberry Pi, Temp Humidity Gauge Monitor Electronic Practice DIY Replace SHT11 SHT15](https://www.amazon.com/dp/B073F472JL)
     - Don't use [Tangyy DHT22 Digital Temperature and Humidity Sensor Replace SHT11 SHT15 Measure Module for Raspberry Pi](https://www.amazon.com/dp/B08QHW9TS8), never got any reads, always timed out
     - Can use the cheaper DHT11 if you are fine with single degree Celsius precision (tested from a different kit I had)
@@ -212,6 +212,8 @@ import webrepl_setup
     ```
 - Access http://webserverip:port/lessmostat.html from any browser and operate the lessmostat!
 
+![image](ui.jpg)
+
 ## Development Notes
 
 ### esp-01 information 
@@ -233,10 +235,10 @@ The esp-01 has too few GPIOs to operate all the necessary components in the boar
 In the two normal modes of operation, the default firmware listens at TCP port 8080 for magic hex numbers and redirects them to the STM8S103, then that chip enables/disables the relays depending on the hex numbers provided:
 
 ```python
-relay_1_on = [0xA0, 0x01, 0x1, 0xA2]
 relay_1_off = [0xA0, 0x01, 0x00, 0xA1]
-relay_2_on = [0xA0, 0x02, 0x01, 0xA3]
+relay_1_on = [0xA0, 0x01, 0x1, 0xA2]
 relay_2_off = [0xA0, 0x02, 0x00, 0xA2]
+relay_2_on = [0xA0, 0x02, 0x01, 0xA3]
 ```
 
 The board can operate in two modes toggled by the S1 switch:
@@ -252,6 +254,26 @@ Finally, if you put the board in esp8266 development mode and short the esp-01's
 See 
 - http://www.lctech-inc.com/cpzx/1/94.html
 - http://www.icstation.com/esp8266-wifi-channel-relay-module-smart-home-remote-control-switch-android-phone-control-transmission-distance-100m-p-12592.html
+
+### esp8266 quad channel WIFI relay board
+
+![image](13404_1_8770.jpg)
+
+The quad channel relay board works the same way as the dual channel, but the STM8S103 accepts eight commands:
+```python
+relay_1_off = [0xA0, 0x01, 0x00, 0xA1]
+relay_1_on = [0xA0, 0x01, 0x1, 0xA2]
+relay_2_off = [0xA0, 0x02, 0x00, 0xA2]
+relay_2_on = [0xA0, 0x02, 0x01, 0xA3]
+relay_3_off = [0xA0, 0x03, 0x00, 0xA3]
+relay_3_on = [0xA0, 0x03, 0x01, 0xA4]
+relay_4_off = [0xA0, 0x04, 0x00, 0xA4]
+relay_4_on = [0xA0, 0x04, 0x01, 0xA5]
+```
+
+See
+- http://www.lctech-inc.com/cpzx/1/48.html
+- https://www.icstation.com/esp8266-wifi-channel-relay-module-remote-control-switch-wireless-transmitter-smart-home-p-13420.html
 
 
 ### DHT11 vs. DHT22

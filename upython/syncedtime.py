@@ -25,7 +25,7 @@ from logging import log_info
 # epoch is year 2000 in MicroPython but 1970 in unix
 # See https://stackoverflow.com/questions/57154794/micropython-and-epoch
 
-uepoch_delta_seconds = 946_684_800
+uepoch_delta_seconds = 946684800
 def get_epoch():
     return time.time() + uepoch_delta_seconds
 

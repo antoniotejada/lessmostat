@@ -23,18 +23,25 @@ var host = location.hostname;
 var port = 9001;
 
 var targetDeg = 35;
+var acTargetDeg = 35;
+var heatTargetDeg = 10;
 var currentDeg = 30;
 var targetHumid = 65;
+var acTargetHumid = 65;
+var heatTargetHumid = 70; 
 var currentHumid = 44;
 var currentAcState = "unknown";
+var currentHeatState = "unknown";
 const displayModes = ["celsius", "fahrenheit", "humidity"];
 // One of "celsius", "fahrenheit", "humidity"
 var displayMode = displayModes[0];
 var targetFanState = "auto";
 var currentFanState = "unknown";
-var currentMode = "unknown"; // "heating" / "cooling"
+var currentMode = "cooling"; // "heating" / "cooling"
 var acUptime = 0;
+var heatUptime = 0;
 var acLastModTime = 0;
+var heatLastModTime = 0;
 var fanUptime = 0;
 var fanLastModTime = 0;
 var startTime = 0;
@@ -82,40 +89,56 @@ function onMessageArrived(message) {
 
     } else if (topic == topic_root + "info/state") {
         // XXX This asssumes a lot about the rules
-        var ac_rules = data.state.config.ac_rules;
+        var cooling = (currentMode == "cooling");
+        var ac_rules = cooling ? data.state.config.ac_rules : data.state.config.heat_rules;
         var ac_on_rule = ac_rules[0].state == "on" ? ac_rules[0] : ac_rules[1];
         var fan_rules = data.state.config.fan_rules;
         var fan_on_rule = fan_rules[0];
         var preset_rules = data.state.config.presets;
         for (var i = 0; i < preset_rules.length; ++i) {
             presets[i] = { 
-                "targetDeg" : preset_rules[i].ac.temp, 
+                "targetDeg" : cooling ? preset_rules[i].ac.temp : preset_rules[i].heat.temp, 
+                "acTargetDeg" : preset_rules[i].ac.temp,
+                "heatTargetDeg" : preset_rules[i].heat.temp,
                 "targetFanState" : preset_rules[i].fan.state,
-                // XXX Remove once all the rules have humidity
-                "targetHumid" : preset_rules[i].ac.humid || 65,
+                "targetHumid" : (cooling ? preset_rules[i].ac.humid : preset_rules[i].heat.humid),
+                "acTargetHumid" : preset_rules[i].ac.humid,
+                "heatTargetHumid" : preset_rules[i].heat.humid
             }
         }
 
         targetDeg = ac_on_rule.temp;
+        acTargetDeg = data.state.config.ac_rules[0].temp;
+        heatTargetDeg = data.state.config.heat_rules[0].temp;
         targetHumid = ac_on_rule.humid;
+        acTargetHumid = data.state.config.ac_rules[0].humid;
+        heatTargetHumid = data.state.config.heat_rules[0].humid;
         currentAcState = data.state.ac;
+        currentHeatState = data.state.heat;
         currentDeg = data.state.sensor.temp;
         currentHumid = data.state.sensor.humid;
         targetFanState = fan_on_rule.state; 
         currentFanState = data.state.fan;
         startTime = data.state.start_ts;
-        acUptime = data.state.ac_uptime;
+        acUptime =data.state.ac_uptime;
+        heatUptime = data.state.heat_uptime;
         acLastModTime = data.state.ac_mod_ts;
+        heatLastModTime = data.state.heat_mod_ts;
         fanUptime = data.state.fan_uptime;
         fanLastModTime = data.state.fan_mod_ts;
-        currentMode = data.state.config.mode;
-
+        
         updateGr();
     } else if (topic == topic_root + "info/ac") {
         currentAcState = data.state;
         acLastModTime = data.mod_ts;
         acUptime = data.uptime;
         updateGr();
+    } else if (topic == topic_root + "info/heat") {
+        currentHeatState = data.state;
+        heatLastModTime = data.mod_ts;
+        heatUptime = data.uptime;
+        updateGr();
+
     } else if (topic == topic_root + "info/fan") {
         currentFanState = data.state;
         fanLastModTime = data.mod_ts;
@@ -133,7 +156,7 @@ function displayingTemp(displayMode) {
     return (displayMode != "humidity");
 }
 
-function requestTargets(targetDeg, targetHumid) {
+function requestTargets(mode, targetDeg, targetHumid) {
     var msg = timestampMessage({
         state: "on",
         temp: targetDeg,
@@ -141,7 +164,7 @@ function requestTargets(targetDeg, targetHumid) {
     });
     msg = JSON.stringify(msg)
     var message = new Paho.Message(msg);
-    message.destinationName = topic_root + "control/ac";
+    message.destinationName = topic_root + "control/" + (mode == "cooling" ? "ac" : "heat");
     dbg("requestTargets " + msg);
     mqtt.send(message);
 }
@@ -155,12 +178,10 @@ function requestFanState(newFanState) {
     mqtt.send(message);
 }
 
-function requestMode(newMode) {
-    var msg = timestampMessage({
-        state : newMode, 
-    });
+function requestState() {
+    var msg = timestampMessage({});
     var message = new Paho.Message(JSON.stringify(msg));
-    message.destinationName = topic_root + "control/mode";
+    message.destinationName = topic_root + "control/state";
     mqtt.send(message);
 }
 
@@ -168,10 +189,7 @@ function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
     info("Connected ");
     mqtt.subscribe(topic_root + "#");
-    var msg = timestampMessage({});
-    var message = new Paho.Message(JSON.stringify(msg));
-    message.destinationName = topic_root + "control/state";
-    mqtt.send(message);
+    requestState();
 }
 
 function onConnectionLost(responseObject) {
@@ -186,6 +204,18 @@ function onConnected() {
 
 function onFailure() {
     warn("onFailure");
+    // Try other "well-known" MQTT servers, this allows running the HTTP server
+    // on a different machine than the MQTT host for eg debugging (note onFailure
+    // doesn't seem to be called when there's a disconnect, only when the
+    // original connect fails)
+    if (host == location.hostname) {
+        host = "192.168.8.201";
+        warn("switching to MQTT host " + host);
+    } else {
+        host = location.hostname;
+        warn("switching to MQTT host " + host);
+    }
+    MQTTconnect()
 }
 
 function MQTTconnect() {
@@ -211,11 +241,11 @@ function MQTTconnect() {
 const degreesUnused = 40;
 // Celsius for 0+degreesUnused/2 and 360-degreesUnused/2 circular degrees
 const maxDeg = 35;
-const minDeg = 15;
+const minDeg = 10;
 // Percentage humid for 0+degreesUnused/2 and 360-degreesUnused/2 circular
 // degrees
-const maxHumid = 70;
-const minHumid = 30;
+const maxHumid = 75;
+const minHumid = 25;
 
 // Unicode symbol chars
 const halfChar = '\u00BD';
@@ -311,8 +341,9 @@ function updateGr() {
     currentDegDisplay = roundDecimals(currentDegDisplay, 1);
     currentHumidDisplay = roundDecimals(currentHumidDisplay, 1);
 
-    var acUtilization = acUptime;
-    if (currentAcState == "on") {
+    var cooling = (currentMode == "cooling");
+    var acUtilization = cooling ? acUptime : heatUptime;
+    if ((cooling && (currentAcState == "on")) || (!cooling && (currentHeatState == "on"))) {
         // If AC is running, accumulate the last running time since uptime
         // doesn't include it until AC is turned off
         // Note this uses the last timestamp known from the esp8266 rather than 
@@ -323,7 +354,7 @@ function updateGr() {
         // device time which makes it consistent across clients (at the expense
         // of being only accurate at message receive time, but that's the case
         // anyway since display is only updated at message receive time)
-        acUtilization += (lastMessageTime - acLastModTime);
+        acUtilization += (lastMessageTime - (cooling ? acLastModTime : heatLastModTime));
     }
     acUtilization = (acUtilization * 100.0) / (lastMessageTime - startTime);
     var acUtilizationDisplay = roundDecimals(acUtilization, 1);
@@ -335,32 +366,50 @@ function updateGr() {
     fanUtilization = (fanUtilization * 100.0) / (lastMessageTime - startTime);
     var fanUtilizationDisplay = roundDecimals(fanUtilization, 1);
 
-    // XXX The pct usage of AC should probably be split between heating and cooling?
-    var modeChar = (currentMode == "cooling") ? flakeChar : fireChar;
+    var cooling = (currentMode == "cooling")
+    var modeChar = cooling ? flakeChar : fireChar;
     var current = currentDeg;
     var currentDisplay = currentDegDisplay;
     var target = targetDeg;
     var currentDegrees = degToDegrees(current);
     var targetDegrees = degToDegrees(target);
+    var acTargetDegrees = degToDegrees(acTargetDeg);
+    var heatTargetDegrees = degToDegrees(heatTargetDeg);
     if (displayingTemp(displayMode)) {
-        $(".fill,.shadow-cube").removeClass("humid").addClass("temp");
+        $(".fill").removeClass("humid").addClass("temp");
         $(".units").text("" + thermometerChar + unitChar + ' '  + dropletChar + currentHumidDisplay + "%");
+        $(".number.ac,.shadow.ac").css("transform", "translate(-50%, -50%) rotate("+ acTargetDegrees + "deg)");
+        $(".number.heat,.shadow.heat").css("transform", "translate(-50%, -50%) rotate("+ heatTargetDegrees + "deg)");
+        $(".number.humid,.shadow.humid").css("transform", "translate(-50%, -50%) rotate("+ humidToDegrees(targetHumid) + "deg)");
+        $(".ac .ext").html("" + targetToDisplay(acTargetDeg, displayMode));
+        $(".heat .ext").html("" + targetToDisplay(heatTargetDeg, displayMode));
+        $(".humid .ext").html("" + targetToDisplay(targetHumid, "humidity"));
+        $(".humid .ext,.number .humid,.shadow .humid").show()
     } else {
         current = currentHumid;
         currentDisplay = currentHumidDisplay;
         target = targetHumid;
         currentDegrees = humidToDegrees(current);
-        targetDegrees = humidToDegrees(target);
+        heatTargetDegrees = humidToDegrees(heatTargetHumid);
+        acTargetDegrees = humidToDegrees(acTargetHumid);
 
-        $(".fill,.shadow-cube").removeClass("temp").addClass("humid");
+        $(".fill").removeClass("temp").addClass("humid");
         $(".units").text("" + thermometerChar + roundDecimals(c_to_f(currentDeg), 1) + fahrenheitChar + ' ' + currentDeg + celsiusChar + ' ');
+        $(".number.ac,.shadow.ac").css("transform", "translate(-50%, -50%) rotate("+ acTargetDegrees + "deg)");
+        $(".number.heat,.shadow.heat").css("transform", "translate(-50%, -50%) rotate("+ heatTargetDegrees + "deg)");
+        $(".ac .ext").html("" + targetToDisplay(acTargetHumid, displayMode));
+        $(".heat .ext").html("" + targetToDisplay(heatTargetHumid, displayMode));
+        $(".humid .ext,.number .humid,.shadow .humid").hide()
     }
-
-    $(".heat").text("" + currentDisplay);
+    
+    $(".ac .ext").css("color", "cyan");
+    $(".heat .ext").css("color", "orange");
+    $(".humid .ext").css("color", "dodgerblue");
+    $(".center").css("background-color", cooling ? "cyan" : "orange");
+    $(".current").text("" + currentDisplay);
     $(".fill1").css("transform", "rotate("+ (Math.max(currentDegrees, 0)) +"deg)");
     $(".fill2").css("transform", "rotate("+ (Math.min(currentDegrees, 1) - 180) +"deg)");
-    $(".ext").html("" + targetToDisplay(target, displayMode));
-    $(".number,.shadow").css("transform", "translate(-50%, -50%) rotate("+ targetDegrees + "deg)");
+    
     
     $(".util").html(
         '<span  style="color:blue">' + modeChar + '</span>' + acUtilizationDisplay + "% " + 
@@ -368,18 +417,16 @@ function updateGr() {
     $(".fill").css("animation", "none");
     $(".shadow").css("animation", "none");
     if (currentAcState == "on") {
-        if (currentMode == "cooling") {
-            $(".cooling").text(modeChar + " cooling");
-            $(".cooling").css("color", "cyan");
-        } else {
-            $(".cooling").text(modeChar + " heating");
-            $(".cooling").css("color", "#ff9e23");
-        }
+        $(".cooling").text(flakeChar + " cooling");
+        $(".cooling").css("color", "cyan");
+    } else if (currentHeatState == "on") {
+        $(".cooling").text(fireChar + " heating");
+        $(".cooling").css("color", "#ff9e23");
     } else if (currentFanState == "on") {
-        $(".cooling").text(modeChar + " blowing");
+        $(".cooling").text("blowing");
         $(".cooling").css("color", "lightgreen");
     } else {
-        $(".cooling").text(modeChar + " idle");
+        $(".cooling").text("idle");
         $(".cooling").css("color", "#2e2c3a")
     }
     if (targetFanState == "on") {
@@ -462,6 +509,7 @@ $(document).ready(function(){
         dbg("Storing preset " + presetIndex);
         var msg = timestampMessage({ 
             index : presetIndex,
+            mode : currentMode,
         });
         var message = new Paho.Message(JSON.stringify(msg));
         message.destinationName = topic_root + "control/store_preset";
@@ -494,7 +542,7 @@ $(document).ready(function(){
             dbg("Requesting fan " + requestedFanState + " temp " + requestedTargetDeg + 
                 " humid " + requestedTargetHumid);
             requestFanState(requestedFanState);
-            requestTargets(requestedTargetDeg, requestedTargetHumid);
+            requestTargets(currentMode, requestedTargetDeg, requestedTargetHumid);
         }
     } );
 
@@ -530,7 +578,7 @@ $(document).ready(function(){
             // from the server, this prevents the case where we would locally
             // update targets multiple times, then receiving the updates and
             // updating the local targets to some stale value
-            requestTargets(requestedTargetDeg, requestedTargetHumid);
+            requestTargets(currentMode, requestedTargetDeg, requestedTargetHumid);
         }
     });
 
@@ -565,11 +613,11 @@ $(document).ready(function(){
             // from the server, this prevents the case where we would locally
             // update targets multiple times, then receiving the updates and
             // updating the local targets to some stale value
-            requestTargets(requestedTargetDeg, requestedTargetHumid);
+            requestTargets(currentMode, requestedTargetDeg, requestedTargetHumid);
         }  
     });
     
-    $(".heat").mousedown(function(e) {
+    $(".current").mousedown(function(e) {
         // Cycle displayMode
         const displayModeIndex = displayModes.indexOf(displayMode);
         displayMode = displayModes[(displayModeIndex + 1) % displayModes.length];
@@ -588,14 +636,20 @@ $(document).ready(function(){
     });
 
     $(".cooling").mousedown(function(e) {
-        // Give some UI feedback, use delegateTarget in case the element has
-        // some html formatting and target is a subelement of the element
-        // the event was bound to
-        showUiFeedback(e.delegateTarget);
+        // Change cooling/heating and viceversa
+        currentMode = (currentMode == "heating") ? "cooling" : "heating";
         
-        // Toggle fan state
-        var requestedMode = (currentMode == "heating") ? "cooling" : "heating";
-        requestMode(requestedMode);
+        // XXX Remove this once all targetDeg is changed to heatTargetDeg /
+        //     acTargetDeg?
+        var cooling = (currentMode == "cooling");
+        targetDeg = cooling ? acTargetDeg : heatTargetDeg;
+        targetHumid = cooling ? acTargetHumid : heatTargetHumid;
+        for (var i = 0; i < presets.length; ++i) {
+            presets[i].targetDeg = cooling ? presets[i].acTargetDeg : presets[i].heatTargetDeg;
+            presets[i].targetHumid = cooling ? presets[i].acTargetHumid : presets[i].heatTargetHumid;
+        }
+
+        updateGr();
     });
 });
 
@@ -613,17 +667,29 @@ $(document).ready(function(){
     </div>
     <span class="cooling">Cooling</span>
   </div>
-  <div class="shadow">
-    <div class="shadow-cube temp"></div>
+  <div class="shadow ac">
+    <div class="shadow-cube"></div>
   </div>
-  <div class="number">
+  <div class="number ac">
+    <span class="ext">19</span>
+  </div>
+  <div class="shadow heat">
+    <div class="shadow-cube"></div>
+  </div>
+  <div class="number heat">
+    <span class="ext">19</span>
+  </div>
+  <div class="shadow humid" style="height:78%">
+    <div class="shadow-cube"></div>
+  </div>
+  <div class="number humid" style="height:78%">
     <span class="ext">19</span>
   </div>
   <div class="center">
     <span class="arrow minus"><i class="material-icons">keyboard_arrow_left</i></span>
     <span class="arrow plus"><i class="material-icons">keyboard_arrow_right</i></span>
     <div class="small">
-        <span class="heat">19</span>
+        <span class="current">19</span>
         <span class="units">&#8451;</span>
         <span class="util">44%</span>
     </div>

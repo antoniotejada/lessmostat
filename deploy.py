@@ -26,6 +26,7 @@ See https://github.com/Hermann-SW/webrepl/blob/master/webrepl_client.py
 import os
 import struct
 import sys
+import time
 
 # This is websocket-client-0.59.0
 # See https://github.com/websocket-client/websocket-client.git
@@ -33,6 +34,8 @@ import sys
 import websocket
 
 import logging
+
+import python_minifier as pymin
 
 WEBREPL_REQ_S = "<2sBBQLH64s"
 WEBREPL_PUT_FILE = 1
@@ -116,6 +119,17 @@ def recv_file(ws, filename, out_filename):
     if not ((sig == "WB") and (code == 0)):
         raise Exception("Unexpected sig %s or code %d", sig, code)
 
+def safe_recv_file(ws, url, password, filename, out_filename):
+    # The remote will close and this will throw an exception if the log
+    # file doesn't exist, trap and reconnect
+    try:
+        recv_file(ws, filename, out_filename)
+    except websocket._exceptions.WebSocketConnectionClosedException as e:
+        logger.exception("Unable to recv %s, re-connecting" % filename)
+        logger.info("Connecting WebSocket")
+        ws.connect(url,timeout=WS_TIMEOUT_SECS)
+        send_login(ws, password)
+
 def send_file(ws, filepath, out_filename=None):
     """
     Send a file to the device
@@ -134,7 +148,9 @@ def send_file(ws, filepath, out_filename=None):
 
     with open(filepath, "rb") as f:
         while True:
-            buf = f.read(1024)
+            # Sending 1024 chunks is known to make micropython timeout
+            # sometimes, use 512
+            buf = f.read(512)
             if (buf == ""):
                 break
             logger.debug("Sending %d %r" %(len(buf), buf))
@@ -145,7 +161,7 @@ def send_file(ws, filepath, out_filename=None):
     if not ((sig == "WB") and (code == 0)):
         raise Exception("Unexpected sig %s or code %d", sig, code) 
 
-def send_login(password):
+def send_login(ws, password):
     """
     Wait for login prompt and send password
     """
@@ -167,8 +183,11 @@ def setup_logger(logger):
 
     return logger
 
-modules = ["config.py", "lessmostat.py", "logging.py", "main.py", "mqtt.py", "syncedtime.py"]
+modules = ["config.py", "lessmostat.py", "logging.py", "main.py", "mqtt.py", "syncedtime.py", "umqtt_simple.py"]
 log_filename = "lessmostat.log"
+log_filepath = os.path.join("_out", log_filename)
+cfg_filename = "lessmostat.cfg"
+cfg_filepath = os.path.join("upython", cfg_filename)
 
 logger = logging.getLogger(__name__)
 setup_logger(logger)
@@ -187,8 +206,20 @@ with open(os.path.join("_out", "host_password.txt"), "r") as f:
     host, password = [l.strip() for l in f.readlines()]
     url = "ws://%s:8266/" % host
 
+logger.info("read host and password for host %s", host)
+
 deploy = "deploy" in sys.argv[1:]
 forever = "forever" in sys.argv[1:]
+
+if (not (deploy or forever)):
+    print "One of deploy or forever must be passed as argument!"
+    raise Exception("Missing parameter") 
+
+logger.info("Deleting log file %s", log_filepath)
+try:
+    os.remove(log_filepath)
+except:
+    logger.info("Can't remove log file %s", log_filepath)
 
 if (deploy):
     ws = websocket.WebSocket()
@@ -196,25 +227,71 @@ if (deploy):
     ws.connect(url,timeout=WS_TIMEOUT_SECS)
 
     try:
-        send_login(password)
+        send_login(ws, password)
 
         ver = recv_ver(ws)
         logger.info("version %d.%d.%d" % ver)
 
-        for filename in modules:
-            send_file(ws, os.path.join("upython", filename))
+        if (len(sys.argv) > 2):
+            modules = sys.argv[2:]
 
-        # XXX The remote will close and this will throw an exception if the log
-        #     file doesn't exist, fix
-        recv_file(ws, log_filename, log_filename)
-
-        # Break in and restart by sending Ctrl+C Ctrl+D
+        mini_size = 0
+        maxi_size = 0
         
+        for filename in modules:
+            filepath = os.path.join("upython", filename)
+            
+            # It's not clear minifying helps with out of memory errors, but at
+            # the very least fits more files on disk
+
+            # The minifier is Python 2.x but the micropyton files are Python
+            # 3.x, this causes problems in these two files, where some Python 3
+            # code is converted to Python 2.x (print statement, bytes vs. str),
+            # so don't minify them
+            minify = filename not in ["logging.py", "umqtt_simple.py"]
+
+            if (filepath.endswith(".py") and minify):
+                try:
+                    min_filepath = os.path.join("_out", filename)
+                    logger.info("Minifying %s to %s", filepath, min_filepath)
+                    with open(filepath, "r") as f:
+                        s = f.read()
+                    s_min = pymin.minify(s, filename=filename, remove_literal_statements=True)
+                    with open(min_filepath, "w") as f:
+                        f.write(s_min)
+
+                    mini_size += len(s_min)
+                    maxi_size += len(s)
+                    logger.info("%d to %d %2.3f%%, total %d to %d %2.3f%%",  
+                        len(s), len(s_min), len(s) * 100.0 / len(s_min),
+                        maxi_size, mini_size, maxi_size * 100.0 / mini_size
+                    )
+
+                    filepath = min_filepath
+                except:
+                    logger.exception("Unable to minify %s", filepath)
+
+            send_file(ws, filepath)
+
+        safe_recv_file(ws, url, password, log_filename, log_filepath)
+        
+        # Break in by sending Ctrl+C
+        logger.info("Sending ctrl+c")
+        ws.send("\x03")
+
+        # The config file is saved at ctrl+c time, send it now so it doesn't get
+        # ovewritten
+        # Wait some before sending it otherwise it races with the exception
+        # handler that writes the file
+        time.sleep(1)
+        send_file(ws, cfg_filepath)
+
+        # Restart by sending Ctrl+D
         # XXX Note this is a soft reset, different from machine.reset, which is
         #     a hard reset, should this do a hard reset?
         #     See https://docs.micropython.org/en/v1.8.6/wipy/wipy/tutorial/reset.html
-        logger.info("Sending ctrl+c, ctrl+d")
-        ws.send("\x03\x04")
+        logger.info("Sending ctrl+d")
+        ws.send("\x04")
 
     finally:
         ws.close()
@@ -230,7 +307,7 @@ if (forever):
     ws.connect(url, timeout=WS_TIMEOUT_SECS)
 
     try:
-        send_login(password)
+        send_login(ws, password)
 
         ver = recv_ver(ws)
         logger.info("version %d.%d.%d" % ver)
@@ -238,13 +315,15 @@ if (forever):
         # Pulling the file here would hide micropython interpreter error
         # messages from the deploy above, only pull it if there was no deploy
         if (not deploy):
-            # XXX The remote will close and this will throw an exception if the log
-            #     file doesn't exist, fix
-            recv_file(ws, log_filename, log_filename)
+            safe_recv_file(ws, url, password, cfg_filename, cfg_filepath)
+            safe_recv_file(ws, url, password, log_filename, log_filepath)
 
-        with open(log_filename, "r") as f:
-            for l in f:
-                logger.info(l.strip())
+        try:
+            with open(log_filepath, "r") as f:
+                for l in f:
+                    logger.info(l.strip())
+        except:
+            logger.info("Not dumping non-existent %s", log_filepath)
 
         # XXX Note that if the PC goes to sleep holding this connection it seems
         #     to hang micropython's network stack (!) and you won't be able to

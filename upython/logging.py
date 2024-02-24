@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 """
 Copyright (C) 2021 Antonio Tejada
@@ -47,15 +46,17 @@ def log_all(msg, e=None, stdout_only = False):
     global g_log_file
 
     (year, month, mday, hour, minute, second, weekday, yearday) = time.localtime()
-    s = "%d-%02d-%02d %02d:%02d:%02d %s %s " % (
+    s = "%d-%02d-%02d %02d:%02d:%02d " % (
         year, month, mday,
-        hour, minute, second,
-        msg,
-        "" if (e is None) else repr(e)
+        hour, minute, second
     )
 
-    print(s)
+    # Do individual prints instead of string interpolation to prevent memory
+    # errors because of interpolating long strings
+    print(s, msg)
+    
     if (e is not None):
+        print(e)
         sys.print_exception(e, sys.stdout)
 
     if (not stdout_only):
@@ -78,7 +79,9 @@ def log_all(msg, e=None, stdout_only = False):
             if (g_log_file is None):
                 g_log_file = open(g_log_filename, mode)
 
-            g_log_file.write(s + "\n")
+            g_log_file.write(s)
+            g_log_file.write(msg)
+            g_log_file.write("\n")
             if (e is not None):
                 sys.print_exception(e, g_log_file)
             g_log_file.flush()

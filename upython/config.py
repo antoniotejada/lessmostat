@@ -32,12 +32,6 @@ def read_config(config_filename, state):
                 # If no fan rules, assume auto
                 state["config"]["fan_rules"] = [ { "state" : "auto" } ]
 
-            # Old configs without heating mode default to cooling
-            # XXX Ideally heating/cooling should be a rule thing and allow
-            #     a min temp under which to heat, and max temp over which to cool
-            if ("mode" not in state["config"]):
-                state["config"]["mode"] = "cooling"
-
     except Exception as e:
         logging.log_exception("Exception reading config file %r" % config_filename, e)
 
